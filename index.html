@@ -277,13 +277,13 @@
    la pagina funziona in DEMO con i codici DEMO_* (solo per provare l'interfaccia). */
 const CONFIG = {
   FIREBASE: { apiKey:'AIzaSyD3j-k47EqEZ-RyNgO_h1JpA1_mgis2Zb4', authDomain:'taxi-6c9f5.firebaseapp.com', databaseURL:'https://taxi-6c9f5-default-rtdb.europe-west1.firebasedatabase.app', projectId:'taxi-6c9f5', appId:'1:705863760679:web:aaa204dac556189c3a0702' },
-  EMAILJS:  { publicKey:'', serviceId:'', templateId:'template_w4b5v7d' },
-  ADMIN_EMAILS:     ['ufficio@alpstay.eu'],        // chi entra come Alpstay (Desk/Direzione)
+  EMAILJS:  { publicKey:'65-IyBQx_A0DUK8-N', serviceId:'service_2ovf6na', templateId:'template_w4b5v7d' },
+  ADMIN_EMAILS:     ['info@alpstay.eu'],        // chi entra come Alpstay (Desk/Direzione)
   FORNITORE_EMAILS: ['info@limousinedolomiti.com'],// chi entra come Fornitore
   DEMO_ADMIN_PASS:'admin1234', DEMO_FORNITORE_PASS:'modifica61',
   DEFAULT_COMMISSION_PCT:15,
   TO_EMAIL:'info@limousinedolomiti.com', CC_EMAIL:'info@alpstay.eu',
-  GUEST_URL:''   // URL pubblico della pagina guest (per il link "accetto" nell'offerta)
+  GUEST_URL:'https://alpstay.github.io/Taxi-Guest/'   // pagina guest (link 'accetto' nell'offerta)
 };
 const FB_ON  = !!CONFIG.FIREBASE.projectId && typeof firebase!=='undefined';
 const EJS_ON = !!CONFIG.EMAILJS.publicKey && typeof emailjs!=='undefined';
