@@ -313,6 +313,7 @@ const Store = {
   async create(b){ if(FB_ON){ await db.ref('bookings/'+b.id).set(b); return; } const arr=await this._localGet(); arr.push(b); await this._localSet(arr); },
   async update(id,patch){ if(FB_ON){ await db.ref('bookings/'+id).update(patch); return; } const arr=await this._localGet(); const i=arr.findIndex(x=>x.id===id); if(i>=0){ arr[i]=Object.assign(arr[i],patch); await this._localSet(arr); } },
   async respond(id,patch){ if(FB_ON){ await db.ref('bookings/'+id).update(patch); return; } const arr=await this._localGet(); const i=arr.findIndex(x=>x.id===id); if(i>=0){ arr[i]=Object.assign(arr[i],patch); await this._localSet(arr); } },
+  async remove(id){ if(FB_ON){ await db.ref('bookings/'+id).remove(); return; } const arr=await this._localGet(); const i=arr.findIndex(x=>x.id===id); if(i>=0){ arr.splice(i,1); await this._localSet(arr); } },
   async clear(){ await this._localSet([]); },
   _cond:'',
   async getConditions(){ if(FB_ON){ try{ const s=await db.ref('settings/general/conditions').once('value'); return s.exists()?s.val():''; }catch(e){ return ''; } } if(window.storage){ try{ const r=await window.storage.get('alpstay_conditions',true); return r?r.value:''; }catch(e){ return this._cond; } } return this._cond; },
@@ -460,17 +461,36 @@ function openModal(id){
     <div class="modal-actions">
       <button class="submit" id="mSave" style="padding:13px 30px">Salva</button>
       <button class="ghost-btn" id="mEmail" style="margin-top:0">Apri email al fornitore</button>
+      <button class="ghost-btn" id="mDelete" style="margin-top:0;margin-left:auto;border-color:#C45D5D;color:#C45D5D">Elimina prenotazione</button>
     </div>`;
   overlay.classList.add('show');
   $('#mClose').addEventListener('click',closeModal);
   $('#mPrezzo').addEventListener('input',e=>{ const p=parseFloat(e.target.value); if(!isNaN(p)&&!$('#mComm').dataset.touched) $('#mComm').value=(p*commissionPct/100).toFixed(2); });
   $('#mComm').addEventListener('input',e=>e.target.dataset.touched='1');
   $('#mEmail').addEventListener('click',()=>window.location.href=mailtoFor(b));
+  $('#mDelete').addEventListener('click',()=>deleteBooking(id));
   $('#mSave').addEventListener('click',async()=>{
     const patch={ stato:$('#mStato').value, prezzo:parseFloat($('#mPrezzo').value)||0, commissione:parseFloat($('#mComm').value)||0, noteInterne:$('#mNote').value.trim() };
     $('#mSave').disabled=true; $('#mSave').textContent='Salvataggio…';
     await Store.update(id,patch); await reload(); closeModal(); renderDesk();
   });
+}
+async function deleteBooking(id){
+  const b=bookings.find(x=>x.id===id);
+  const pass=prompt('Eliminazione DEFINITIVA della prenotazione'+(b?' di '+b.nome+' '+b.cognome:'')+'.\nInserisci la tua password di accesso per confermare:');
+  if(pass===null) return;                 // annullato
+  if(!pass){ alert('Password non inserita: eliminazione annullata.'); return; }
+  try{
+    if(FB_ON && auth.currentUser){
+      const cred=firebase.auth.EmailAuthProvider.credential(auth.currentUser.email, pass);
+      await auth.currentUser.reauthenticateWithCredential(cred);   // verifica la password reale
+    } else if(pass!==CONFIG.DEMO_ADMIN_PASS){
+      alert('Password errata: eliminazione annullata.'); return;
+    }
+  }catch(e){ alert('Password errata: eliminazione annullata.'); return; }
+  try{
+    await Store.remove(id); await reload(); closeModal(); renderDesk();
+  }catch(e){ alert('Eliminazione non riuscita. Riprova.'); }
 }
 function mailtoFor(b){
   const oraLabel=b.riferimento==='arrivo'?'Orario di ARRIVO a destinazione':'Orario di PARTENZA dal luogo di partenza';
