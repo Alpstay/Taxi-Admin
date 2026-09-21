@@ -157,7 +157,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 </head>
 <body>
 <div class="topbar"></div>
@@ -272,12 +271,11 @@
 <div class="overlay" id="overlay"><div class="modal" id="modal"></div></div>
 
 <script>
-/* === Pagina ADMIN — Realtime Database (dati) + Firebase Auth (login) + EmailJS (email). ===
-   Compila FIREBASE, EMAILJS e gli elenchi email dei ruoli. Finché FIREBASE è vuoto,
+/* === Pagina ADMIN — Realtime Database (dati) + Firebase Auth (login) + Google Apps Script (email). ===
+   Compila FIREBASE, MAIL_ENDPOINT e gli elenchi email dei ruoli. Finché FIREBASE è vuoto,
    la pagina funziona in DEMO con i codici DEMO_* (solo per provare l'interfaccia). */
 const CONFIG = {
   FIREBASE: { apiKey:'AIzaSyD3j-k47EqEZ-RyNgO_h1JpA1_mgis2Zb4', authDomain:'taxi-6c9f5.firebaseapp.com', databaseURL:'https://taxi-6c9f5-default-rtdb.europe-west1.firebasedatabase.app', projectId:'taxi-6c9f5', appId:'1:705863760679:web:aaa204dac556189c3a0702' },
-  EMAILJS:  { publicKey:'65-IyBQx_A0DUK8-N', serviceId:'service_2ovf6na', templateId:'template_w4b5v7d' },
   MAIL_ENDPOINT:'https://script.google.com/macros/s/AKfycbz6y4YnftxcWp3v_uZcbB1dcXP2saFZYTJMErkB7_756quurtq4kfIE4x1yuP-ZLT3JNA/exec',  // web-app Google Apps Script
   ADMIN_EMAILS:     ['info@alpstay.eu'],        // chi entra come Alpstay (Desk/Direzione)
   FORNITORE_EMAILS: ['info@limousinedolomiti.com'],// chi entra come Fornitore
@@ -287,10 +285,8 @@ const CONFIG = {
   GUEST_URL:'https://alpstay.github.io/Taxi-Guest/'   // pagina guest (link 'accetto' nell'offerta)
 };
 const FB_ON  = !!CONFIG.FIREBASE.projectId && typeof firebase!=='undefined';
-const EJS_ON = !!CONFIG.EMAILJS.publicKey && typeof emailjs!=='undefined';
 let db=null, auth=null;
 if(FB_ON){ firebase.initializeApp(CONFIG.FIREBASE); db=firebase.database(); auth=firebase.auth(); }
-if(EJS_ON){ emailjs.init({publicKey:CONFIG.EMAILJS.publicKey}); }
 
 let commissionPct = CONFIG.DEFAULT_COMMISSION_PCT;
 let role='';
@@ -322,14 +318,20 @@ const Store = {
 let bookings=[];
 async function reload(){ bookings=await Store.list(); }
 
-/* ---- EmailJS ---- */
+/* ---- Email: invio tramite Google Apps Script ---- */
 async function sendMail(to,cc,reply,subject,html){
-  if(!CONFIG.MAIL_ENDPOINT) return;
+  if(!CONFIG.MAIL_ENDPOINT) return false;
+  let esito=null;
   try{
-    await fetch(CONFIG.MAIL_ENDPOINT,{ method:'POST', mode:'no-cors',
-      headers:{'Content-Type':'text/plain;charset=utf-8'},
+    const r=await fetch(CONFIG.MAIL_ENDPOINT,{ method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},   // richiesta semplice: nessun preflight CORS
       body: JSON.stringify({ to:to, cc:cc||'', replyTo:reply||CONFIG.CC_EMAIL, subject:subject, html:html }) });
-  }catch(e){ console.error('Mail', e); }
+    esito=await r.json().catch(()=>null);
+  }catch(e){ console.error('[Mail] script non raggiungibile:', e); }
+  if(esito && esito.ok){ console.info('[Mail] inviata a '+to+' · '+subject); return true; }
+  console.error('[Mail] NON inviata a '+to+' · risposta script:', esito);
+  alert('Attenzione: l\'email a '+to+' non risulta inviata. Verifica e, se serve, avvisa a mano.');
+  return false;
 }
 function mailShell(title, intro, rows, extra){
   const line='#E6DEC8', gold='#A68A63', ink='#2E2F2E', soft='#6B6660';
@@ -348,6 +350,16 @@ function emailOffer(b){
   const html=mailShell('Offerta per il tuo transfer','Limousine Service Dolomiti è disponibile per il tuo transfer. Accetta per confermare.',rows,extra+cond);
   const to=[b.email, CONFIG.CC_EMAIL].filter(Boolean).join(',');
   sendMail(to, '', CONFIG.TO_EMAIL, 'Offerta transfer · '+b.nome+' '+b.cognome, html);
+}
+function emailConfirmed(b){
+  const rows=[['Orario di ritiro',(esc(b.orarioConfermato)||esc(b.ora)||'—')+' · '+fmtDate(b.data),true],
+    ['Tragitto',esc(b.partenza)+' → '+esc(b.arrivo)],['Mezzo',esc(b.veicolo)||'—'],
+    ['Passeggeri',esc(b.persone)],['Prezzo',eur(b.prezzo)]];
+  if(b.noteOspite) rows.push(['Note',esc(b.noteOspite)]);
+  const cond=(String(b.condizioniAttive||'').toLowerCase().indexOf('s')===0 && conditions)?`<div style="margin-top:14px;border:1px solid #E6DEC8;border-radius:6px;padding:12px;background:#FCFAF5"><div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#A68A63;margin-bottom:6px">Condizioni generali</div><div style="font-size:12px;color:#6B6660;white-space:pre-wrap">${esc(conditions)}</div></div>`:'';
+  const html=mailShell('Il tuo transfer è confermato','Il servizio è confermato. Di seguito il riepilogo.',rows,cond);
+  const to=[CONFIG.TO_EMAIL, CONFIG.CC_EMAIL, b.email].filter(Boolean).join(',');
+  sendMail(to, '', CONFIG.TO_EMAIL, 'Confermato · transfer '+b.nome+' '+b.cognome, html);
 }
 function emailReject(b){
   const rows=[['Codice',b.id],['Tragitto',esc(b.partenza)+' → '+esc(b.arrivo)],['Data',fmtDate(b.data)]];
@@ -550,8 +562,12 @@ function openFornModal(id){
     </div>
     <div class="section-head"><span class="section-title" style="font-size:20px">La tua risposta</span><span class="section-bar"></span></div>
     <div class="grid">
-      <div class="field full"><label>Esito</label>
-        <select id="fEsito"><option value="offerta">Disponibile — invia offerta</option><option value="rifiutata">Non disponibile</option></select></div>
+      <div class="field full"><label>Stato da impostare</label>
+        <select id="fEsito">
+          <option value="offerta"${b.stato==='offerta'?' selected':''}>Offerta inviata</option>
+          <option value="confermata"${b.stato==='confermata'?' selected':''}>Confermata</option>
+          <option value="rifiutata"${b.stato==='rifiutata'?' selected':''}>Non disponibile</option>
+        </select></div>
       <div class="field" id="wOra"><label>Orario di ritiro confermato</label><input type="time" id="fOra" value="${esc(b.orarioConfermato)||b.ora}"></div>
       <div class="field" id="wPrezzo"><label>Prezzo del servizio (€)</label><input type="number" id="fPrezzo" min="0" step="0.01" value="${b.prezzo||''}" placeholder="0,00"></div>
       <div class="field" id="wMezzo"><label>Mezzo / veicolo</label><input type="text" id="fMezzo" value="${esc(b.veicolo)||''}" placeholder="es. Mercedes Vito"></div>
@@ -570,8 +586,11 @@ function openFornModal(id){
       </div>
       <div class="field full" id="wLink"><label>Link per il pagamento</label><input type="url" id="fLink" value="${esc(b.linkPagamento)||''}" placeholder="https://… (Stripe, PayPal, bonifico online)"></div>
     </div>
-    <div class="modal-actions">
-      <button class="submit" id="fSave" style="padding:13px 30px">Invia risposta</button>
+    <div class="modal-actions" style="align-items:center;gap:16px">
+      <button class="submit" id="fSave" style="padding:13px 30px">Salva e invia</button>
+      <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--ink);cursor:pointer">
+        <input type="checkbox" id="fMail" style="width:auto" checked> Invia l&rsquo;email all&rsquo;ospite
+      </label>
     </div>`;
   overlay.classList.add('show');
   $('#mClose').addEventListener('click',closeModal);
@@ -583,18 +602,24 @@ function openFornModal(id){
   $('#fEsito').addEventListener('change',toggle); toggle();
   $('#fSave').addEventListener('click',async()=>{
     const esito=$('#fEsito').value;
-    const prezzo=esito==='offerta'?(parseFloat($('#fPrezzo').value)||0):0;
-    const paga=esito==='offerta' && $('#fPaga').checked;
+    const attivo=esito!=='rifiutata';                    // offerta o confermata: tengo i dati del servizio
+    const prezzo=attivo?(parseFloat($('#fPrezzo').value)||0):0;
+    const paga=attivo && $('#fPaga').checked;
     const patch={ stato:esito, rispostaAt:new Date().toISOString(),
-      orarioConfermato:esito==='offerta'?$('#fOra').value:'', veicolo:esito==='offerta'?$('#fMezzo').value.trim():'',
+      orarioConfermato:attivo?$('#fOra').value:'', veicolo:attivo?$('#fMezzo').value.trim():'',
       noteFornitore:$('#fNote').value.trim(), noteOspite:$('#fNoteOspite').value.trim(),
-      condizioniAttive:(esito==='offerta' && $('#fCond').checked)?'sì':'',
+      condizioniAttive:(attivo && $('#fCond').checked)?'sì':'',
       prezzo, commissione:+(prezzo*commissionPct/100).toFixed(2),
       pagamentoAnticipato:paga?'sì':'', linkPagamento:paga?$('#fLink').value.trim():'' };
-    $('#fSave').disabled=true; $('#fSave').textContent='Invio…';
+    if(esito==='confermata' && !b.acceptedAt) patch.acceptedAt=new Date().toISOString();
+    $('#fSave').disabled=true; $('#fSave').textContent='Salvataggio…';
     await Store.respond(id,patch);
     const merged=Object.assign({},b,patch);
-    if(esito==='offerta') emailOffer(merged); else emailReject(merged);
+    if($('#fMail').checked){
+      if(esito==='offerta') emailOffer(merged);
+      else if(esito==='confermata') emailConfirmed(merged);
+      else emailReject(merged);
+    }
     await reload(); renderForn(); closeModal();
   });
 }
@@ -664,7 +689,7 @@ async function seedDemo(){
 
 (async function init(){
   $('#dPct').value=commissionPct;
-  $('#modeFlag').textContent = FB_ON ? 'Sistema attivo · Realtime Database + EmailJS' : 'Modalità demo · dati locali a questa pagina';
+  $('#modeFlag').textContent = FB_ON ? 'Sistema attivo · Realtime Database + email Google' : 'Modalità demo · dati locali a questa pagina';
   if(!FB_ON){ await reload(); if(bookings.length===0){ await seedDemo(); await reload(); } }
 })();
 </script>
