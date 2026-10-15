@@ -101,7 +101,7 @@
   .b-inviata{color:var(--gold);border-color:var(--gold);background:var(--gold-wash)}
   .b-offerta{color:#6b4ea0;border-color:#d8cce8;background:#f3eefb}
   .b-confermata{color:var(--ok);border-color:#BFE0CD;background:#EFF7F2}
-  .b-rifiutocliente{color:#9C6B1F;border-color:#E6D5B8;background:#FAF4E9}
+  .b-rifiutocliente{color:var(--err);border-color:#E7C7C4;background:#FBF1F0}
   .b-rifiutata{color:var(--err);border-color:#E7C7C4;background:#FBF1F0}
   .b-completata{color:var(--info);border-color:#C7D5E0;background:#EFF3F7}
   .b-annullata{color:var(--muted);border-color:#DDD7C9;background:#F6F4EE}
@@ -285,6 +285,21 @@
 </div>
 
 <div class="overlay" id="overlay"><div class="modal" id="modal"></div></div>
+
+<!-- conferma di eliminazione -->
+<div class="overlay" id="delOverlay" style="z-index:80;align-items:center">
+  <div class="modal" id="delModal" style="max-width:460px;padding:30px">
+    <h2 style="font-family:'Belleza';font-weight:400;font-size:27px;color:var(--err);margin-bottom:6px">Eliminare la richiesta?</h2>
+    <p class="small" style="margin-bottom:18px">L&rsquo;operazione &egrave; definitiva: la prenotazione e la sua cronologia vengono rimosse e non si possono recuperare.</p>
+    <div id="delInfo" style="border:1px solid var(--field-border);border-left:4px solid var(--err);border-radius:3px;background:#FBF1F0;padding:14px 16px;margin-bottom:20px;font-size:14px;color:var(--ink)"></div>
+    <div class="field"><label>Password di accesso</label><input type="password" id="delPass" placeholder="conferma con la tua password" autocomplete="current-password"></div>
+    <p class="small" id="delErr" style="color:var(--err);min-height:18px;margin-top:6px"></p>
+    <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+      <button class="submit" id="delYes" style="padding:13px 26px;background:var(--err);border-color:var(--err)">Elimina definitivamente</button>
+      <button class="btn-line" id="delNo">Annulla</button>
+    </div>
+  </div>
+</div>
 
 <script>
 /* === Pagina ADMIN — Realtime Database (dati) + Firebase Auth (login) + Google Apps Script (email). ===
@@ -560,23 +575,44 @@ function openModal(id){
     toast('Stato aggiornato: '+(STATI[nuovo]||nuovo));
   });
 }
-async function deleteBooking(id){
-  const b=bookings.find(x=>x.id===id);
-  const pass=prompt('Eliminazione DEFINITIVA della prenotazione'+(b?' di '+b.nome+' '+b.cognome:'')+'.\nInserisci la tua password di accesso per confermare:');
-  if(pass===null) return;                 // annullato
-  if(!pass){ alert('Password non inserita: eliminazione annullata.'); return; }
+let delId=null;
+function deleteBooking(id){
+  const b=bookings.find(x=>x.id===id); if(!b) return;
+  delId=id;
+  $('#delInfo').innerHTML=`<strong>${esc(b.nome)} ${esc(b.cognome)}</strong><br>${b.id} · ${fmtDate(b.data)} ore ${esc(b.orarioConfermato)||esc(b.ora)}<br>${esc(b.partenza)} → ${esc(b.arrivo)}<br>Stato: ${STATI[b.stato]||b.stato}`;
+  $('#delPass').value=''; $('#delErr').textContent='';
+  $('#delOverlay').classList.add('show');
+  setTimeout(()=>$('#delPass').focus(),80);
+}
+function closeDelete(){ $('#delOverlay').classList.remove('show'); delId=null; }
+async function confermaEliminazione(){
+  if(!delId) return;
+  const pass=$('#delPass').value;
+  if(!pass){ $('#delErr').textContent='Inserisci la password per confermare.'; return; }
+  $('#delYes').disabled=true; $('#delYes').textContent='Verifica…';
   try{
     if(FB_ON && auth.currentUser){
       const cred=firebase.auth.EmailAuthProvider.credential(auth.currentUser.email, pass);
       await auth.currentUser.reauthenticateWithCredential(cred);   // verifica la password reale
-    } else if(pass!==CONFIG.DEMO_ADMIN_PASS){
-      alert('Password errata: eliminazione annullata.'); return;
-    }
-  }catch(e){ alert('Password errata: eliminazione annullata.'); return; }
+    } else if(pass!==CONFIG.DEMO_ADMIN_PASS){ throw new Error('pw'); }
+  }catch(e){
+    $('#delErr').textContent='Password errata: eliminazione annullata.';
+    $('#delYes').disabled=false; $('#delYes').textContent='Elimina definitivamente'; return;
+  }
+  const id=delId;
   try{
-    await Store.remove(id); await reload(); closeModal(); renderDesk();
-  }catch(e){ alert('Eliminazione non riuscita. Riprova.'); }
+    await Store.remove(id); await reload(); closeDelete(); closeModal(); renderVisibile();
+    toast('Richiesta eliminata · '+id);
+  }catch(e){
+    $('#delErr').textContent='Eliminazione non riuscita. Riprova.';
+  }
+  $('#delYes').disabled=false; $('#delYes').textContent='Elimina definitivamente';
 }
+$('#delYes').addEventListener('click',confermaEliminazione);
+$('#delNo').addEventListener('click',closeDelete);
+$('#delPass').addEventListener('keydown',e=>{ if(e.key==='Enter') confermaEliminazione(); });
+$('#delOverlay').addEventListener('click',e=>{ if(e.target===$('#delOverlay')) closeDelete(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape' && $('#delOverlay').classList.contains('show')) closeDelete(); });
 function mailtoFor(b){
   const oraLabel=b.riferimento==='arrivo'?'Orario di ARRIVO a destinazione':'Orario di PARTENZA dal luogo di partenza';
   const L=['RICHIESTA DI TRANSFER — ALPSTAY','','Codice: '+b.id,'Tipo di transfer: '+b.tipo];
@@ -618,7 +654,6 @@ async function renderForn(){
 function openFornModal(id){
   const b=bookings.find(x=>x.id===id); if(!b) return;
   const oraLabel=b.riferimento==='arrivo'?'Orario di ARRIVO a destinazione':'Orario di PARTENZA dal luogo di partenza';
-  const condChk = b.rispostaAt ? (String(b.condizioniAttive||'').toLowerCase().indexOf('s')===0) : !!conditions;
   modal.innerHTML=`
     <div class="modal-head"><div><h2>Richiesta transfer</h2></div><button class="x" id="mClose">&times;</button></div>
     <div class="mcode">${b.id} · struttura: ${esc(b.struttura)||'—'}</div>
@@ -657,9 +692,7 @@ function openFornModal(id){
       <div class="field full"><label>Note per Alpstay (interne)</label><input type="text" id="fNote" value="${esc(b.noteFornitore)||''}" placeholder="uso interno, non visibile all'ospite"></div>
       <div class="field full"><label>Note per l'ospite</label><input type="text" id="fNoteOspite" value="${esc(b.noteOspite)||''}" placeholder="incluse nell'offerta inviata all'ospite"></div>
       <div class="field full" id="wCond">
-        <label style="display:flex;align-items:center;gap:9px;text-transform:none;letter-spacing:0;font-size:14px;color:var(--ink);cursor:pointer;margin-bottom:0">
-          <input type="checkbox" id="fCond" style="width:auto" ${condChk?'checked':''}> Allega le condizioni generali all'offerta
-        </label>
+        <div style="font-size:14px;color:var(--ink)">Condizioni generali &mdash; allegate sempre all'offerta e alla conferma</div>
         <div id="condPreview" class="dv" style="white-space:pre-wrap;font-size:12px;color:var(--ink-soft);margin-top:10px;padding:12px;background:var(--field-bg);border:1px solid var(--field-border);border-radius:2px">${conditions?esc(conditions):'Nessuna condizione generale impostata da Alpstay.'}</div>
       </div>
       <div class="field full" id="wPaga">
@@ -674,14 +707,14 @@ function openFornModal(id){
       <label id="wMail" style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--ink);cursor:pointer">
         <input type="checkbox" id="fMail" style="width:auto" checked> <span id="mailLabel">Invia l&rsquo;email all&rsquo;ospite</span>
       </label>
+      <button class="ghost-btn" id="fDelete" style="margin-top:0;margin-left:auto;border-color:var(--err);color:var(--err)">Elimina richiesta</button>
     </div>`;
   overlay.classList.add('show');
   $('#mClose').addEventListener('click',closeModal);
   const updatePay=()=>{ $('#wLink').style.display = $('#fPaga').checked ? 'flex' : 'none'; };
-  const updateCond=()=>{ $('#condPreview').style.opacity = $('#fCond').checked ? '1' : '.4'; };
-  const toggle=()=>{ const dis=STATI_CON_SERVIZIO.indexOf($('#fEsito').value)<0; ['wOra','wPrezzo','wMezzo','wPaga','wLink','wCond'].forEach(w=>$('#'+w).style.opacity=dis?'.4':'1'); $('#fPaga').disabled=dis; $('#fCond').disabled=dis; if(dis){ $('#wLink').style.display='none'; } else { updatePay(); updateCond(); } };
+  const toggle=()=>{ const dis=STATI_CON_SERVIZIO.indexOf($('#fEsito').value)<0; ['wOra','wPrezzo','wMezzo','wPaga','wLink','wCond'].forEach(w=>$('#'+w).style.opacity=dis?'.4':'1'); $('#fPaga').disabled=dis; if(dis){ $('#wLink').style.display='none'; } else { updatePay(); } };
+  $('#fDelete').addEventListener('click',()=>deleteBooking(id));
   $('#fPaga').addEventListener('change',updatePay);
-  $('#fCond').addEventListener('change',updateCond);
   $('#fEsito').addEventListener('change',()=>{ toggle(); toggleMail(); });
   function toggleMail(){
     const nome=STATI_CON_EMAIL[$('#fEsito').value];
@@ -691,6 +724,7 @@ function openFornModal(id){
     $('#mailLabel').textContent = nome
       ? 'Invia l\u2019email all\u2019ospite ('+nome.toLowerCase()+')'
       : 'Nessuna email prevista per questo stato';
+    $('#fSave').textContent = nome ? 'Salva e invia' : 'Salva';
   }
   toggle(); toggleMail();
   $('#fSave').addEventListener('click',async()=>{
@@ -712,7 +746,7 @@ function openFornModal(id){
     const patch={ stato:esito, rispostaAt:ora,
       orarioConfermato:attivo?$('#fOra').value:'', veicolo:attivo?$('#fMezzo').value.trim():'',
       noteFornitore:$('#fNote').value.trim(), noteOspite:$('#fNoteOspite').value.trim(),
-      condizioniAttive:(attivo && $('#fCond').checked)?'sì':'',
+      condizioniAttive:attivo?'sì':'',
       prezzo,
       pagamentoAnticipato:paga?'sì':'', linkPagamento:paga?$('#fLink').value.trim():'' };
     if(esito==='offerta' || esito==='rifiutocliente'){   // nessuna conferma valida in piedi
@@ -726,6 +760,7 @@ function openFornModal(id){
     }
     const nome = STATI_CON_EMAIL[esito] || '';
     const vuoleMail = !!nome && $('#fMail').checked;
+    const etichettaSalva=$('#fSave').textContent;
     $('#fSave').disabled=true; $('#fSave').textContent=vuoleMail?'Invio…':'Salvataggio…';
 
     /* prima l'email, poi lo stato: "Offerta inviata" compare solo se la mail è partita davvero */
@@ -744,6 +779,7 @@ function openFornModal(id){
     }
     await Store.respond(id,patch);
     await reload(); renderForn(); closeModal();
+    $('#fSave').textContent=etichettaSalva;
     if(!vuoleMail)   toast('Stato salvato: '+(STATI[patch.stato]||patch.stato)+' · nessuna email inviata', false);
     else if(inviata) toast(nome+' inviata a '+(merged.email||'—'));
     else             toast(nome+' NON inviata: dati salvati, riprova', false);
