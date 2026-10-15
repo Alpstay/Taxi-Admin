@@ -101,6 +101,7 @@
   .b-inviata{color:var(--gold);border-color:var(--gold);background:var(--gold-wash)}
   .b-offerta{color:#6b4ea0;border-color:#d8cce8;background:#f3eefb}
   .b-confermata{color:var(--ok);border-color:#BFE0CD;background:#EFF7F2}
+  .b-rifiutocliente{color:#9C6B1F;border-color:#E6D5B8;background:#FAF4E9}
   .b-rifiutata{color:var(--err);border-color:#E7C7C4;background:#FBF1F0}
   .b-completata{color:var(--info);border-color:#C7D5E0;background:#EFF3F7}
   .b-annullata{color:var(--muted);border-color:#DDD7C9;background:#F6F4EE}
@@ -203,7 +204,7 @@
         <div class="field"><label>Periodo</label>
           <select id="fPeriodo"><option value="next7">Prossimi 7 giorni</option><option value="today">Solo oggi</option><option value="future">Da oggi in poi</option><option value="all">Tutti</option></select></div>
         <div class="field"><label>Stato</label>
-          <select id="fStato"><option value="">Tutti</option><option value="inviata">Inviata</option><option value="confermata">Confermata</option><option value="rifiutata">Rifiutata</option><option value="completata">Completata</option><option value="annullata">Annullata</option></select></div>
+          <select id="fStato"><option value="">Tutti</option></select></div>
         <div class="field"><label>Struttura</label><input type="text" id="fStruttura" placeholder="filtra…"></div>
         <div class="field" style="flex:1.4"><label>Ricerca passeggero</label><input type="text" id="fSearch" placeholder="nome, cognome, codice…"></div>
         <button class="btn-line" id="deskRefresh">Aggiorna</button>
@@ -257,7 +258,7 @@
       <div class="rule" style="margin-bottom:34px"></div>
       <div class="toolbar">
         <div class="field"><label>Mostra</label>
-          <select id="fornFiltro"><option value="da-rispondere">Da rispondere</option><option value="future">In programma (da oggi)</option><option value="all">Tutte</option></select></div>
+          <select id="fornFiltro"><option value="da-rispondere">Da gestire (nuove e in attesa)</option><option value="future">In programma (da oggi)</option><option value="all">Tutte</option></select></div>
         <div class="field" style="flex:1.6"><label>Ricerca</label><input type="text" id="fornSearch" placeholder="nome, struttura, codice…"></div>
         <button class="btn-line" id="fornRefresh">Aggiorna</button>
       </div>
@@ -311,7 +312,12 @@ const eur = n => (Number(n)||0).toLocaleString('it-IT',{style:'currency',currenc
 const esc = s => (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmtDate = iso => { if(!iso) return ''; const [y,m,d]=String(iso).split('-'); return `${d}/${m}/${y}`; };
 const todayISO = () => new Date().toISOString().slice(0,10);
-const STATI = {inviata:'Inviata',offerta:'Offerta inviata',confermata:'Confermata',rifiutata:'Rifiutata',completata:'Completata',annullata:'Annullata'};
+const STATI = {inviata:'Richiesta ricevuta', offerta:'Offerta inviata', confermata:'Confermata dal cliente',
+  rifiutocliente:'Prezzo rifiutato', rifiutata:'Non disponibile', completata:'Completata', annullata:'Annullata'};
+/* stati che conservano i dati del servizio (orario, prezzo, mezzo) */
+const STATI_CON_SERVIZIO = ['offerta','confermata','completata'];
+/* stati che generano un'email all'ospite, con il nome usato nel messaggio a schermo */
+const STATI_CON_EMAIL = {offerta:'Offerta', confermata:'Conferma', rifiutata:'Risposta'};
 function genId(){ const d=new Date(); const p=n=>String(n).padStart(2,'0'); return 'ALP-'+String(d.getFullYear()).slice(2)+p(d.getMonth()+1)+p(d.getDate())+'-'+Math.random().toString(36).slice(2,6).toUpperCase(); }
 
 const Store = {
@@ -403,9 +409,9 @@ function emailOffer(b){
   const rows=[['Orario di ritiro',(esc(b.orarioConfermato)||'—')+' · '+fmtDate(b.data),true],['Tragitto',esc(b.partenza)+' → '+esc(b.arrivo)],['Mezzo',esc(b.veicolo)||'—'],['Prezzo',eur(b.prezzo)]];
   if(b.noteOspite) rows.push(['Note',esc(b.noteOspite)]);
   let extra='';
-  if(accept) extra+=`<div style="margin:16px 0;text-align:center"><a href="${accept}" style="display:inline-block;background:#2E2F2E;color:#fff;text-decoration:none;font-weight:bold;padding:15px 34px;border-radius:6px;font-size:16px">Confermo il prezzo di ${eur(b.prezzo)}</a><div style="font-size:12px;color:#6B6660;margin-top:10px">Il transfer viene confermato solo dopo la tua conferma del prezzo.</div></div>`;
+  if(accept) extra+=`<div style="margin:16px 0;text-align:center"><a href="${accept}" style="display:inline-block;background:#2E2F2E;color:#fff;text-decoration:none;font-weight:bold;padding:15px 34px;border-radius:6px;font-size:16px">Confermo con obbligo di pagare &middot; ${eur(b.prezzo)}</a><div style="font-size:12px;color:#6B6660;margin-top:10px">Il transfer è confermato solo dopo la tua conferma. Confermando accetti il prezzo e le condizioni generali riportate sotto.</div></div>`;
   if(paga&&b.linkPagamento) extra+=`<div style="margin:12px 0;text-align:center"><a href="${esc(b.linkPagamento)}" style="display:inline-block;background:#A68A63;color:#fff;text-decoration:none;font-weight:bold;padding:13px 32px;border-radius:6px">Paga ora · ${eur(b.prezzo)}</a></div>`;
-  const cond=(String(b.condizioniAttive||'').toLowerCase().indexOf('s')===0 && conditions)?`<div style="margin-top:14px;border:1px solid #E6DEC8;border-radius:6px;padding:12px;background:#FCFAF5"><div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#A68A63;margin-bottom:6px">Condizioni generali</div><div style="font-size:12px;color:#6B6660;white-space:pre-wrap">${esc(conditions)}</div></div>`:'';
+  const cond=conditions?`<div style="margin-top:14px;border:1px solid #E6DEC8;border-radius:6px;padding:12px;background:#FCFAF5"><div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#A68A63;margin-bottom:6px">Condizioni generali</div><div style="font-size:12px;color:#6B6660;white-space:pre-wrap">${esc(conditions)}</div></div>`:'';
   const html=mailShell('Offerta per il tuo transfer','Limousine Service Dolomiti è disponibile per il tuo transfer. Conferma il prezzo qui sotto per rendere il servizio definitivo.',rows,extra+cond);
   const to=[b.email, CONFIG.CC_EMAIL].filter(Boolean).join(',');
   return sendMail(to, '', CONFIG.TO_EMAIL, 'Offerta transfer · '+b.nome+' '+b.cognome, html);
@@ -415,7 +421,7 @@ function emailConfirmed(b){
     ['Tragitto',esc(b.partenza)+' → '+esc(b.arrivo)],['Mezzo',esc(b.veicolo)||'—'],
     ['Passeggeri',esc(b.persone)],['Prezzo accettato',eur(b.prezzoAccettato||b.prezzo),true]];
   if(b.noteOspite) rows.push(['Note',esc(b.noteOspite)]);
-  const cond=(String(b.condizioniAttive||'').toLowerCase().indexOf('s')===0 && conditions)?`<div style="margin-top:14px;border:1px solid #E6DEC8;border-radius:6px;padding:12px;background:#FCFAF5"><div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#A68A63;margin-bottom:6px">Condizioni generali</div><div style="font-size:12px;color:#6B6660;white-space:pre-wrap">${esc(conditions)}</div></div>`:'';
+  const cond=conditions?`<div style="margin-top:14px;border:1px solid #E6DEC8;border-radius:6px;padding:12px;background:#FCFAF5"><div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#A68A63;margin-bottom:6px">Condizioni generali</div><div style="font-size:12px;color:#6B6660;white-space:pre-wrap">${esc(conditions)}</div></div>`:'';
   const html=mailShell('Il tuo transfer è confermato','Il servizio è confermato. Di seguito il riepilogo.',rows,cond);
   const to=[CONFIG.TO_EMAIL, CONFIG.CC_EMAIL, b.email].filter(Boolean).join(',');
   return sendMail(to, '', CONFIG.TO_EMAIL, 'Confermato · transfer '+b.nome+' '+b.cognome, html);
@@ -541,9 +547,17 @@ function openModal(id){
   $('#mEmail').addEventListener('click',()=>window.location.href=mailtoFor(b));
   $('#mDelete').addEventListener('click',()=>deleteBooking(id));
   $('#mSave').addEventListener('click',async()=>{
-    const patch={ stato:$('#mStato').value, prezzo:parseFloat($('#mPrezzo').value)||0, noteInterne:$('#mNote').value.trim() };
+    const nuovo=$('#mStato').value, ora=new Date().toISOString();
+    const patch={ stato:nuovo, prezzo:parseFloat($('#mPrezzo').value)||0, noteInterne:$('#mNote').value.trim() };
+    if(nuovo==='offerta' || nuovo==='rifiutocliente'){        // nessuna conferma valida in piedi
+      patch.acceptedAt=''; patch.prezzoAccettato=0; patch.confermaManuale=''; patch.confermaVista='';
+    }
+    if(nuovo==='confermata' && !b.acceptedAt){               // conferma raccolta dall'operatore
+      patch.acceptedAt=ora; patch.prezzoAccettato=patch.prezzo; patch.confermaManuale='sì'; patch.confermaVista=ora;
+    }
     $('#mSave').disabled=true; $('#mSave').textContent='Salvataggio…';
     await Store.update(id,patch); await reload(); closeModal(); renderDesk();
+    toast('Stato aggiornato: '+(STATI[nuovo]||nuovo));
   });
 }
 async function deleteBooking(id){
@@ -585,7 +599,7 @@ async function renderForn(){
   if(!bookings.length) await reload();
   const f=$('#fornFiltro').value, q=$('#fornSearch').value.toLowerCase().trim(), t=todayISO();
   let rows=bookings.slice()
-    .filter(b=>{ if(f==='da-rispondere') return b.stato==='inviata'; if(f==='future') return b.data>=t; return true; })
+    .filter(b=>{ if(f==='da-rispondere') return b.stato==='inviata'||b.stato==='offerta'; if(f==='future') return b.data>=t; return true; })
     .filter(b=>!q||(`${b.nome} ${b.cognome} ${b.struttura} ${b.id}`).toLowerCase().includes(q))
     .sort((a,b)=>(a.data+a.ora).localeCompare(b.data+b.ora));
   const tb=$('#fornRows');
@@ -630,9 +644,12 @@ function openFornModal(id){
     <div class="grid">
       <div class="field full"><label>Stato da impostare</label>
         <select id="fEsito">
-          <option value="offerta"${b.stato==='offerta'?' selected':''}>Invia offerta &mdash; attende la conferma del cliente</option>
-          <option value="confermata"${b.stato==='confermata'?' selected':''}>Conferma a voce (eccezione: il cliente ha gi&agrave; accettato il prezzo)</option>
-          <option value="rifiutata"${b.stato==='rifiutata'?' selected':''}>Non disponibile</option>
+          <option value="offerta"${b.stato==='offerta'?' selected':''}>Offerta inviata &mdash; attende la conferma del cliente</option>
+          <option value="confermata"${b.stato==='confermata'?' selected':''}>Confermata dal cliente (anche a voce o per email)</option>
+          <option value="rifiutocliente"${b.stato==='rifiutocliente'?' selected':''}>Prezzo rifiutato dal cliente</option>
+          <option value="rifiutata"${b.stato==='rifiutata'?' selected':''}>Non disponibile (non possiamo effettuare il servizio)</option>
+          <option value="completata"${b.stato==='completata'?' selected':''}>Completata &mdash; servizio gi&agrave; effettuato</option>
+          <option value="annullata"${b.stato==='annullata'?' selected':''}>Annullata</option>
         </select></div>
       <div class="field" id="wOra"><label>Orario di ritiro confermato</label><input type="time" id="fOra" value="${esc(b.orarioConfermato)||b.ora}"></div>
       <div class="field" id="wPrezzo"><label>Prezzo del servizio (€)</label><input type="number" id="fPrezzo" min="0" step="0.01" value="${b.prezzo||''}" placeholder="0,00"></div>
@@ -654,22 +671,32 @@ function openFornModal(id){
     </div>
     <div class="modal-actions" style="align-items:center;gap:16px">
       <button class="submit" id="fSave" style="padding:13px 30px">Salva e invia</button>
-      <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--ink);cursor:pointer">
-        <input type="checkbox" id="fMail" style="width:auto" checked> Invia l&rsquo;email all&rsquo;ospite (consigliato)
+      <label id="wMail" style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--ink);cursor:pointer">
+        <input type="checkbox" id="fMail" style="width:auto" checked> <span id="mailLabel">Invia l&rsquo;email all&rsquo;ospite</span>
       </label>
     </div>`;
   overlay.classList.add('show');
   $('#mClose').addEventListener('click',closeModal);
   const updatePay=()=>{ $('#wLink').style.display = $('#fPaga').checked ? 'flex' : 'none'; };
   const updateCond=()=>{ $('#condPreview').style.opacity = $('#fCond').checked ? '1' : '.4'; };
-  const toggle=()=>{ const dis=$('#fEsito').value==='rifiutata'; ['wOra','wPrezzo','wMezzo','wPaga','wLink','wCond'].forEach(w=>$('#'+w).style.opacity=dis?'.4':'1'); $('#fPaga').disabled=dis; $('#fCond').disabled=dis; if(dis){ $('#wLink').style.display='none'; } else { updatePay(); updateCond(); } };
+  const toggle=()=>{ const dis=STATI_CON_SERVIZIO.indexOf($('#fEsito').value)<0; ['wOra','wPrezzo','wMezzo','wPaga','wLink','wCond'].forEach(w=>$('#'+w).style.opacity=dis?'.4':'1'); $('#fPaga').disabled=dis; $('#fCond').disabled=dis; if(dis){ $('#wLink').style.display='none'; } else { updatePay(); updateCond(); } };
   $('#fPaga').addEventListener('change',updatePay);
   $('#fCond').addEventListener('change',updateCond);
-  $('#fEsito').addEventListener('change',toggle); toggle();
+  $('#fEsito').addEventListener('change',()=>{ toggle(); toggleMail(); });
+  function toggleMail(){
+    const nome=STATI_CON_EMAIL[$('#fEsito').value];
+    $('#fMail').disabled=!nome;
+    $('#wMail').style.opacity = nome?'1':'.45';
+    $('#fMail').checked = !!nome;
+    $('#mailLabel').textContent = nome
+      ? 'Invia l\u2019email all\u2019ospite ('+nome.toLowerCase()+')'
+      : 'Nessuna email prevista per questo stato';
+  }
+  toggle(); toggleMail();
   $('#fSave').addEventListener('click',async()=>{
     let esito=$('#fEsito').value;
-    const attivo=esito!=='rifiutata';                    // offerta o confermata: tengo i dati del servizio
-    const prezzo=attivo?(parseFloat($('#fPrezzo').value)||0):0;
+    const attivo=STATI_CON_SERVIZIO.indexOf(esito)>=0;   // offerta, confermata, completata: tengo i dati del servizio
+    const prezzo=attivo?(parseFloat($('#fPrezzo').value)||0):(Number(b.prezzo)||0);
     const paga=attivo && $('#fPaga').checked;
 
     /* il cliente ha confermato UN prezzo preciso: se cambia, la conferma decade */
@@ -688,23 +715,26 @@ function openFornModal(id){
       condizioniAttive:(attivo && $('#fCond').checked)?'sì':'',
       prezzo,
       pagamentoAnticipato:paga?'sì':'', linkPagamento:paga?$('#fLink').value.trim():'' };
-    if(esito==='offerta'){                      // in attesa: nessuna conferma valida
+    if(esito==='offerta' || esito==='rifiutocliente'){   // nessuna conferma valida in piedi
       patch.acceptedAt=''; patch.prezzoAccettato=0; patch.confermaManuale=''; patch.confermaVista='';
     }
-    if(esito==='confermata' && !b.acceptedAt){  // eccezione registrata dall'operatore
+    if(esito==='confermata' && !b.acceptedAt){          // conferma raccolta dall'operatore (voce, email, messaggio)
       patch.acceptedAt=ora; patch.prezzoAccettato=prezzo; patch.confermaManuale='sì'; patch.confermaVista=ora;
     }
-    const vuoleMail=$('#fMail').checked;
-    const nome = esito==='offerta' ? 'Offerta' : (esito==='confermata' ? 'Conferma' : 'Risposta');
+    if(esito==='completata' || esito==='annullata'){    // non toccano la conferma già registrata
+      delete patch.acceptedAt; delete patch.prezzoAccettato; delete patch.confermaManuale; delete patch.confermaVista;
+    }
+    const nome = STATI_CON_EMAIL[esito] || '';
+    const vuoleMail = !!nome && $('#fMail').checked;
     $('#fSave').disabled=true; $('#fSave').textContent=vuoleMail?'Invio…':'Salvataggio…';
 
     /* prima l'email, poi lo stato: "Offerta inviata" compare solo se la mail è partita davvero */
     const merged=Object.assign({},b,patch);
     let inviata=null;
     if(vuoleMail){
-      if(esito==='offerta')        inviata=await emailOffer(merged);
-      else if(esito==='confermata') inviata=await emailConfirmed(merged);
-      else                          inviata=await emailReject(merged);
+      if(esito==='offerta')         inviata=await emailOffer(merged);
+      else if(esito==='confermata')  inviata=await emailConfirmed(merged);
+      else if(esito==='rifiutata')   inviata=await emailReject(merged);
       if(inviata) patch.mailInviataAt=ora;
       else {                                   // invio fallito: i dati si salvano, lo stato no
         patch.stato = b.stato||'inviata';
@@ -714,7 +744,7 @@ function openFornModal(id){
     }
     await Store.respond(id,patch);
     await reload(); renderForn(); closeModal();
-    if(!vuoleMail)   toast('Stato salvato · nessuna email inviata all\'ospite', false);
+    if(!vuoleMail)   toast('Stato salvato: '+(STATI[patch.stato]||patch.stato)+' · nessuna email inviata', false);
     else if(inviata) toast(nome+' inviata a '+(merged.email||'—'));
     else             toast(nome+' NON inviata: dati salvati, riprova', false);
   });
@@ -781,6 +811,8 @@ async function seedDemo(){
 }
 
 (async function init(){
+  $('#fStato').insertAdjacentHTML('beforeend',
+    Object.entries(STATI).map(([k,v])=>`<option value="${k}">${v}</option>`).join(''));
   $('#modeFlag').textContent = FB_ON ? 'Sistema attivo · Realtime Database + email Google' : 'Modalità demo · dati locali a questa pagina';
   if(!FB_ON){ await reload(); if(bookings.length===0){ await seedDemo(); await reload(); } }
 })();
