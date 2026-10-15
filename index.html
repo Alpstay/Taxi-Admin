@@ -49,6 +49,15 @@
   input,select,textarea{font-family:'Lato',sans-serif;font-weight:300;font-size:16px;color:var(--ink);background:var(--field-bg);border:1px solid var(--field-border);border-radius:2px;padding:13px 14px;width:100%;transition:border-color .25s,box-shadow .25s,background .25s;appearance:none}
   textarea{resize:vertical;min-height:92px;line-height:1.55}
   select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1l5 5 5-5' stroke='%23B6924E' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");background-repeat:no-repeat;background-position:right 16px center;padding-right:38px;cursor:pointer}
+  /* le caselle di spunta devono restare visibili: la regola generale sopra applica
+     appearance:none anche a loro e il segno di spunta non comparirebbe mai */
+  #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:30px;z-index:9999;display:none;max-width:90vw;
+    padding:16px 28px;border-radius:3px;font-family:'Lato',sans-serif;font-weight:700;font-size:15px;letter-spacing:.06em;
+    text-transform:uppercase;color:#fff;box-shadow:0 8px 28px rgba(0,0,0,.22);text-align:center}
+  #toast.ok{background:#2F7D5B}
+  #toast.ko{background:#C45D5D}
+  input[type="checkbox"]{appearance:auto;-webkit-appearance:checkbox;width:20px;height:20px;min-width:20px;flex:none;padding:0;margin:0;border:none;background:none;border-radius:0;accent-color:var(--gold);cursor:pointer}
+  input[type="checkbox"]:focus{outline:2px solid var(--gold);outline-offset:2px;box-shadow:none}
   input:focus,select:focus,textarea:focus{outline:none;border-color:var(--gold);background:#fff;box-shadow:0 0 0 3px rgba(182,146,78,.12)}
   input::placeholder,textarea::placeholder{color:#B6AE9C}
   .field.invalid input,.field.invalid select,.field.invalid textarea{border-color:var(--err);box-shadow:0 0 0 3px rgba(166,64,58,.10)}
@@ -172,6 +181,13 @@
   </div>
 
   <div id="content" style="display:none">
+    <div id="alertBar" style="display:none;margin-top:18px;border:1px solid #2F7D5B;border-left:5px solid #2F7D5B;border-radius:3px;background:#EFF7F2;padding:16px 18px">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <strong id="alertTitle" style="font-family:'Belleza';font-size:19px;color:#2F7D5B;letter-spacing:.5px"></strong>
+        <button class="btn-line" id="alertSeen" style="margin-left:auto;border-color:#2F7D5B;color:#2F7D5B">Segna come viste</button>
+      </div>
+      <div id="alertList" class="small" style="margin-top:10px;color:var(--ink)"></div>
+    </div>
     <nav id="adminNav">
       <button class="tab active" data-sub="desk">Desk</button>
       <button class="tab" data-sub="direzione">Direzione</button>
@@ -210,7 +226,6 @@
       <div class="toolbar">
         <div class="field"><label>Periodo</label>
           <select id="dPeriodo"><option value="month">Questo mese</option><option value="lastmonth">Mese scorso</option><option value="year">Quest'anno</option><option value="all" selected>Tutto</option></select></div>
-        <div class="field"><label>Commissione Alpstay predefinita (%)</label><input type="number" id="dPct" min="0" max="100" step="1"></div>
         <button class="btn-line" id="dirRefresh">Aggiorna</button>
       </div>
 
@@ -218,7 +233,7 @@
       <div class="panel"><h3>Fatturato per mese</h3><div id="chart"></div></div>
       <div class="panel"><h3>Per struttura</h3>
         <div class="table-scroll"><table style="min-width:520px">
-          <thead><tr><th>Struttura</th><th>Transfer</th><th>Confermati</th><th>Fatturato</th><th>Ricavo Alpstay</th></tr></thead>
+          <thead><tr><th>Struttura</th><th>Transfer</th><th>Confermati</th><th>Fatturato</th></tr></thead>
           <tbody id="dirRows"></tbody>
         </table></div>
       </div>
@@ -280,7 +295,6 @@ const CONFIG = {
   ADMIN_EMAILS:     ['info@alpstay.eu'],        // chi entra come Alpstay (Desk/Direzione)
   FORNITORE_EMAILS: ['info@limousinedolomiti.com'],// chi entra come Fornitore
   DEMO_ADMIN_PASS:'admin1234', DEMO_FORNITORE_PASS:'modifica61',
-  DEFAULT_COMMISSION_PCT:15,
   TO_EMAIL:'info@limousinedolomiti.com', CC_EMAIL:'info@alpstay.eu',
   GUEST_URL:'https://alpstay.github.io/Taxi-Guest/'   // pagina guest (link 'accetto' nell'offerta)
 };
@@ -288,7 +302,6 @@ const FB_ON  = !!CONFIG.FIREBASE.projectId && typeof firebase!=='undefined';
 let db=null, auth=null;
 if(FB_ON){ firebase.initializeApp(CONFIG.FIREBASE); db=firebase.database(); auth=firebase.auth(); }
 
-let commissionPct = CONFIG.DEFAULT_COMMISSION_PCT;
 let role='';
 let conditions='';
 const deepId = new URLSearchParams(location.search).get('id');
@@ -318,6 +331,52 @@ const Store = {
 let bookings=[];
 async function reload(){ bookings=await Store.list(); }
 
+/* ---- Messaggio a schermo (esito dell'invio) ---- */
+function toast(testo, ok){
+  let el=document.getElementById('toast');
+  if(!el){ el=document.createElement('div'); el.id='toast'; document.body.appendChild(el); }
+  el.textContent=testo; el.className = ok===false?'ko':'ok'; el.style.display='block';
+  clearTimeout(el._t); el._t=setTimeout(()=>{ el.style.display='none'; }, 7000);
+}
+
+/* ---- Conferme del cliente: avviso nel pannello ---- */
+function nuoveConferme(){
+  return bookings.filter(b=> b.stato==='confermata' && b.acceptedAt && !b.confermaVista);
+}
+function renderAlert(){
+  const bar=$('#alertBar'); if(!bar) return;
+  const nuove=nuoveConferme();
+  if(!nuove.length){ bar.style.display='none'; return; }
+  bar.style.display='block';
+  $('#alertTitle').textContent = nuove.length===1
+    ? '1 nuova conferma dal cliente'
+    : nuove.length+' nuove conferme dai clienti';
+  $('#alertList').innerHTML = nuove
+    .sort((a,b)=>String(b.acceptedAt).localeCompare(String(a.acceptedAt)))
+    .map(b=>`<div style="padding:3px 0">${esc(b.nome)} ${esc(b.cognome)} · ${b.id} · ${fmtDate(b.data)} ore ${esc(b.orarioConfermato)||esc(b.ora)} · prezzo accettato <strong>${eur(b.prezzoAccettato||b.prezzo)}</strong></div>`)
+    .join('');
+}
+async function segnaConfermeViste(){
+  const nuove=nuoveConferme(); if(!nuove.length) return;
+  const ora=new Date().toISOString();
+  for(const b of nuove){ try{ await Store.update(b.id,{confermaVista:ora}); }catch(e){ console.error(e); } }
+  await reload(); renderAlert(); renderVisibile();
+}
+function renderVisibile(){
+  if($('#sub-fornitore').style.display==='block') renderForn();
+  else if($('#sub-direzione').style.display==='block') renderDir();
+  else renderDesk();
+}
+/* nuove richieste e conferme compaiono da sole, senza ricaricare la pagina */
+function avviaAggiornamentoAutomatico(){
+  if(!FB_ON) return;
+  db.ref('bookings').on('value', s=>{
+    const v=s.val()||{};
+    bookings=Object.keys(v).map(k=>v[k]);
+    renderAlert(); renderVisibile();
+  }, e=>console.error('[RTDB]',e));
+}
+
 /* ---- Email: invio tramite Google Apps Script ---- */
 async function sendMail(to,cc,reply,subject,html){
   if(!CONFIG.MAIL_ENDPOINT) return false;
@@ -344,29 +403,29 @@ function emailOffer(b){
   const rows=[['Orario di ritiro',(esc(b.orarioConfermato)||'—')+' · '+fmtDate(b.data),true],['Tragitto',esc(b.partenza)+' → '+esc(b.arrivo)],['Mezzo',esc(b.veicolo)||'—'],['Prezzo',eur(b.prezzo)]];
   if(b.noteOspite) rows.push(['Note',esc(b.noteOspite)]);
   let extra='';
-  if(accept) extra+=`<div style="margin:12px 0;text-align:center"><a href="${accept}" style="display:inline-block;background:#2E2F2E;color:#fff;text-decoration:none;font-weight:bold;padding:13px 32px;border-radius:6px">Accetto l'offerta</a><div style="font-size:12px;color:#6B6660;margin-top:8px">Cliccando accetti: il servizio risulterà confermato.</div></div>`;
+  if(accept) extra+=`<div style="margin:16px 0;text-align:center"><a href="${accept}" style="display:inline-block;background:#2E2F2E;color:#fff;text-decoration:none;font-weight:bold;padding:15px 34px;border-radius:6px;font-size:16px">Confermo il prezzo di ${eur(b.prezzo)}</a><div style="font-size:12px;color:#6B6660;margin-top:10px">Il transfer viene confermato solo dopo la tua conferma del prezzo.</div></div>`;
   if(paga&&b.linkPagamento) extra+=`<div style="margin:12px 0;text-align:center"><a href="${esc(b.linkPagamento)}" style="display:inline-block;background:#A68A63;color:#fff;text-decoration:none;font-weight:bold;padding:13px 32px;border-radius:6px">Paga ora · ${eur(b.prezzo)}</a></div>`;
   const cond=(String(b.condizioniAttive||'').toLowerCase().indexOf('s')===0 && conditions)?`<div style="margin-top:14px;border:1px solid #E6DEC8;border-radius:6px;padding:12px;background:#FCFAF5"><div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#A68A63;margin-bottom:6px">Condizioni generali</div><div style="font-size:12px;color:#6B6660;white-space:pre-wrap">${esc(conditions)}</div></div>`:'';
-  const html=mailShell('Offerta per il tuo transfer','Limousine Service Dolomiti è disponibile per il tuo transfer. Accetta per confermare.',rows,extra+cond);
+  const html=mailShell('Offerta per il tuo transfer','Limousine Service Dolomiti è disponibile per il tuo transfer. Conferma il prezzo qui sotto per rendere il servizio definitivo.',rows,extra+cond);
   const to=[b.email, CONFIG.CC_EMAIL].filter(Boolean).join(',');
-  sendMail(to, '', CONFIG.TO_EMAIL, 'Offerta transfer · '+b.nome+' '+b.cognome, html);
+  return sendMail(to, '', CONFIG.TO_EMAIL, 'Offerta transfer · '+b.nome+' '+b.cognome, html);
 }
 function emailConfirmed(b){
   const rows=[['Orario di ritiro',(esc(b.orarioConfermato)||esc(b.ora)||'—')+' · '+fmtDate(b.data),true],
     ['Tragitto',esc(b.partenza)+' → '+esc(b.arrivo)],['Mezzo',esc(b.veicolo)||'—'],
-    ['Passeggeri',esc(b.persone)],['Prezzo',eur(b.prezzo)]];
+    ['Passeggeri',esc(b.persone)],['Prezzo accettato',eur(b.prezzoAccettato||b.prezzo),true]];
   if(b.noteOspite) rows.push(['Note',esc(b.noteOspite)]);
   const cond=(String(b.condizioniAttive||'').toLowerCase().indexOf('s')===0 && conditions)?`<div style="margin-top:14px;border:1px solid #E6DEC8;border-radius:6px;padding:12px;background:#FCFAF5"><div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#A68A63;margin-bottom:6px">Condizioni generali</div><div style="font-size:12px;color:#6B6660;white-space:pre-wrap">${esc(conditions)}</div></div>`:'';
   const html=mailShell('Il tuo transfer è confermato','Il servizio è confermato. Di seguito il riepilogo.',rows,cond);
   const to=[CONFIG.TO_EMAIL, CONFIG.CC_EMAIL, b.email].filter(Boolean).join(',');
-  sendMail(to, '', CONFIG.TO_EMAIL, 'Confermato · transfer '+b.nome+' '+b.cognome, html);
+  return sendMail(to, '', CONFIG.TO_EMAIL, 'Confermato · transfer '+b.nome+' '+b.cognome, html);
 }
 function emailReject(b){
   const rows=[['Codice',b.id],['Tragitto',esc(b.partenza)+' → '+esc(b.arrivo)],['Data',fmtDate(b.data)]];
   if(b.noteFornitore) rows.push(['Note',esc(b.noteFornitore)]);
   const html=mailShell('Transfer non disponibile','Purtroppo Limousine Service Dolomiti non è disponibile per questo transfer. Verrà ricontattato da Alpstay.',rows,'');
   const to=[b.email, CONFIG.CC_EMAIL].filter(Boolean).join(',');
-  sendMail(to, '', CONFIG.CC_EMAIL, 'Non disponibile · transfer '+b.nome+' '+b.cognome, html);
+  return sendMail(to, '', CONFIG.CC_EMAIL, 'Non disponibile · transfer '+b.nome+' '+b.cognome, html);
 }
 
 /* gate + login (Firebase Auth, con fallback demo a codici) */
@@ -385,6 +444,7 @@ async function doLogin(){
   role=r;
   $('#gate').style.display='none'; $('#content').style.display='block';
   await reload();
+  renderAlert(); avviaAggiornamentoAutomatico();
   if(role==='fornitore'){
     $('#adminNav').style.display='none';
     $('#sub-desk').style.display='none'; $('#sub-direzione').style.display='none';
@@ -400,6 +460,7 @@ async function doLogin(){
     renderDesk(); loadConditions();
   }
 }
+$('#alertSeen').addEventListener('click',segnaConfermeViste);
 $('#unlock').addEventListener('click',doLogin);
 $('#pass').addEventListener('keydown',e=>{ if(e.key==='Enter') doLogin(); });
 async function loadConditions(){ const c=await Store.getConditions(); const el=$('#condText'); if(el) el.value=c||''; }
@@ -408,7 +469,7 @@ document.querySelectorAll('nav .tab').forEach(t=>t.addEventListener('click',()=>
   const sub=t.dataset.sub;
   $('#sub-desk').style.display = sub==='desk'?'block':'none';
   $('#sub-direzione').style.display = sub==='direzione'?'block':'none';
-  if(sub==='desk') renderDesk(); else { $('#dPct').value=commissionPct; renderDir(); }
+  if(sub==='desk') renderDesk(); else renderDir();
 }));
 
 /* DESK */
@@ -461,13 +522,13 @@ function openModal(id){
       <div><div class="dl">Bagagli</div><div class="dv">${esc(b.bagaglio)} valigie · ${esc(b.sacche)} sacche sci</div></div>
       <div><div class="dl">Contatti</div><div class="dv">${esc(b.email)||'—'}<br>${esc(b.telefono)||''}</div></div>
       <div style="grid-column:1/-1"><div class="dl">Note ospite</div><div class="dv">${esc(b.note)||'—'}</div></div>
+      ${b.acceptedAt?`<div style="grid-column:1/-1;border-top:1px solid var(--field-border);padding-top:14px"><div class="dl" style="color:#2F7D5B">${b.confermaManuale?'Confermato a voce':'Prezzo confermato dal cliente'}</div><div class="dv">${fmtDate((b.acceptedAt||'').slice(0,10))} · importo accettato <strong>${eur(b.prezzoAccettato||b.prezzo)}</strong></div></div>`:''}
       ${b.rispostaAt?`<div style="grid-column:1/-1;border-top:1px solid var(--field-border);padding-top:14px"><div class="dl" style="color:var(--gold)">Risposta del fornitore</div><div class="dv">Orario ritiro confermato: ${esc(b.orarioConfermato)||'—'} · Mezzo: ${esc(b.veicolo)||'—'}${b.noteFornitore?'<br>'+esc(b.noteFornitore):''}${b.pagamentoAnticipato?'<br>Pagamento anticipato richiesto'+(b.linkPagamento?': <a href="'+esc(b.linkPagamento)+'" target="_blank" style="color:var(--gold)">'+esc(b.linkPagamento)+'</a>':''):''}</div></div>`:''}
     </div>
     <div class="section-head"><span class="section-title" style="font-size:20px">Gestione</span><span class="section-bar"></span></div>
     <div class="grid">
       <div class="field"><label>Stato</label><select id="mStato">${Object.entries(STATI).map(([k,v])=>`<option value="${k}" ${b.stato===k?'selected':''}>${v}</option>`).join('')}</select></div>
       <div class="field"><label>Importo transfer (€)</label><input type="number" id="mPrezzo" min="0" step="0.01" value="${b.prezzo||''}" placeholder="0,00"></div>
-      <div class="field"><label>Ricavo Alpstay (€)</label><input type="number" id="mComm" min="0" step="0.01" value="${b.commissione||''}" placeholder="auto da %"></div>
       <div class="field"><label>Note interne</label><input type="text" id="mNote" value="${esc(b.noteInterne)||''}" placeholder="uso interno"></div>
     </div>
     <div class="modal-actions">
@@ -477,12 +538,10 @@ function openModal(id){
     </div>`;
   overlay.classList.add('show');
   $('#mClose').addEventListener('click',closeModal);
-  $('#mPrezzo').addEventListener('input',e=>{ const p=parseFloat(e.target.value); if(!isNaN(p)&&!$('#mComm').dataset.touched) $('#mComm').value=(p*commissionPct/100).toFixed(2); });
-  $('#mComm').addEventListener('input',e=>e.target.dataset.touched='1');
   $('#mEmail').addEventListener('click',()=>window.location.href=mailtoFor(b));
   $('#mDelete').addEventListener('click',()=>deleteBooking(id));
   $('#mSave').addEventListener('click',async()=>{
-    const patch={ stato:$('#mStato').value, prezzo:parseFloat($('#mPrezzo').value)||0, commissione:parseFloat($('#mComm').value)||0, noteInterne:$('#mNote').value.trim() };
+    const patch={ stato:$('#mStato').value, prezzo:parseFloat($('#mPrezzo').value)||0, noteInterne:$('#mNote').value.trim() };
     $('#mSave').disabled=true; $('#mSave').textContent='Salvataggio…';
     await Store.update(id,patch); await reload(); closeModal(); renderDesk();
   });
@@ -560,12 +619,19 @@ function openFornModal(id){
       <div><div class="dl">Bagagli</div><div class="dv">${esc(b.bagaglio)} valigie · ${esc(b.sacche)} sacche sci</div></div>
       <div style="grid-column:1/-1"><div class="dl">Note ospite</div><div class="dv">${esc(b.note)||'—'}</div></div>
     </div>
+    ${b.acceptedAt?`<div style="border:1px solid #2F7D5B;border-left:5px solid #2F7D5B;border-radius:3px;background:#EFF7F2;padding:14px 16px;margin:18px 0">
+      <div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#2F7D5B;margin-bottom:5px">${b.confermaManuale?'Confermato a voce':'Prezzo confermato dal cliente'}</div>
+      <div style="font-size:15px;color:var(--ink)">${fmtDate((b.acceptedAt||'').slice(0,10))} &middot; importo accettato <strong>${eur(b.prezzoAccettato||b.prezzo)}</strong></div>
+    </div>`:(b.stato==='offerta'?`<div style="border:1px solid var(--field-border);border-radius:3px;background:var(--gold-wash);padding:14px 16px;margin:18px 0">
+      <div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);margin-bottom:5px">In attesa</div>
+      <div style="font-size:15px;color:var(--ink)">Offerta inviata: il transfer sar&agrave; confermato solo quando il cliente accetter&agrave; il prezzo.</div>
+    </div>`:'')}
     <div class="section-head"><span class="section-title" style="font-size:20px">La tua risposta</span><span class="section-bar"></span></div>
     <div class="grid">
       <div class="field full"><label>Stato da impostare</label>
         <select id="fEsito">
-          <option value="offerta"${b.stato==='offerta'?' selected':''}>Offerta inviata</option>
-          <option value="confermata"${b.stato==='confermata'?' selected':''}>Confermata</option>
+          <option value="offerta"${b.stato==='offerta'?' selected':''}>Invia offerta &mdash; attende la conferma del cliente</option>
+          <option value="confermata"${b.stato==='confermata'?' selected':''}>Conferma a voce (eccezione: il cliente ha gi&agrave; accettato il prezzo)</option>
           <option value="rifiutata"${b.stato==='rifiutata'?' selected':''}>Non disponibile</option>
         </select></div>
       <div class="field" id="wOra"><label>Orario di ritiro confermato</label><input type="time" id="fOra" value="${esc(b.orarioConfermato)||b.ora}"></div>
@@ -589,7 +655,7 @@ function openFornModal(id){
     <div class="modal-actions" style="align-items:center;gap:16px">
       <button class="submit" id="fSave" style="padding:13px 30px">Salva e invia</button>
       <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--ink);cursor:pointer">
-        <input type="checkbox" id="fMail" style="width:auto" checked> Invia l&rsquo;email all&rsquo;ospite
+        <input type="checkbox" id="fMail" style="width:auto" checked> Invia l&rsquo;email all&rsquo;ospite (consigliato)
       </label>
     </div>`;
   overlay.classList.add('show');
@@ -601,32 +667,61 @@ function openFornModal(id){
   $('#fCond').addEventListener('change',updateCond);
   $('#fEsito').addEventListener('change',toggle); toggle();
   $('#fSave').addEventListener('click',async()=>{
-    const esito=$('#fEsito').value;
+    let esito=$('#fEsito').value;
     const attivo=esito!=='rifiutata';                    // offerta o confermata: tengo i dati del servizio
     const prezzo=attivo?(parseFloat($('#fPrezzo').value)||0):0;
     const paga=attivo && $('#fPaga').checked;
-    const patch={ stato:esito, rispostaAt:new Date().toISOString(),
+
+    /* il cliente ha confermato UN prezzo preciso: se cambia, la conferma decade */
+    const confermatoDalCliente = !!b.acceptedAt && !b.confermaManuale;
+    if(confermatoDalCliente && attivo && Number(b.prezzoAccettato||0)!==prezzo){
+      const ok=confirm('Il cliente aveva accettato '+eur(b.prezzoAccettato||0)+', ora il prezzo è '+eur(prezzo)+'.'
+        +'\n\nIl transfer torna in attesa e al cliente viene inviata la nuova offerta da accettare.\n\nProcedere?');
+      if(!ok) return;
+      esito='offerta';
+    }
+
+    const ora=new Date().toISOString();
+    const patch={ stato:esito, rispostaAt:ora,
       orarioConfermato:attivo?$('#fOra').value:'', veicolo:attivo?$('#fMezzo').value.trim():'',
       noteFornitore:$('#fNote').value.trim(), noteOspite:$('#fNoteOspite').value.trim(),
       condizioniAttive:(attivo && $('#fCond').checked)?'sì':'',
-      prezzo, commissione:+(prezzo*commissionPct/100).toFixed(2),
+      prezzo,
       pagamentoAnticipato:paga?'sì':'', linkPagamento:paga?$('#fLink').value.trim():'' };
-    if(esito==='confermata' && !b.acceptedAt) patch.acceptedAt=new Date().toISOString();
-    $('#fSave').disabled=true; $('#fSave').textContent='Salvataggio…';
-    await Store.respond(id,patch);
-    const merged=Object.assign({},b,patch);
-    if($('#fMail').checked){
-      if(esito==='offerta') emailOffer(merged);
-      else if(esito==='confermata') emailConfirmed(merged);
-      else emailReject(merged);
+    if(esito==='offerta'){                      // in attesa: nessuna conferma valida
+      patch.acceptedAt=''; patch.prezzoAccettato=0; patch.confermaManuale=''; patch.confermaVista='';
     }
+    if(esito==='confermata' && !b.acceptedAt){  // eccezione registrata dall'operatore
+      patch.acceptedAt=ora; patch.prezzoAccettato=prezzo; patch.confermaManuale='sì'; patch.confermaVista=ora;
+    }
+    const vuoleMail=$('#fMail').checked;
+    const nome = esito==='offerta' ? 'Offerta' : (esito==='confermata' ? 'Conferma' : 'Risposta');
+    $('#fSave').disabled=true; $('#fSave').textContent=vuoleMail?'Invio…':'Salvataggio…';
+
+    /* prima l'email, poi lo stato: "Offerta inviata" compare solo se la mail è partita davvero */
+    const merged=Object.assign({},b,patch);
+    let inviata=null;
+    if(vuoleMail){
+      if(esito==='offerta')        inviata=await emailOffer(merged);
+      else if(esito==='confermata') inviata=await emailConfirmed(merged);
+      else                          inviata=await emailReject(merged);
+      if(inviata) patch.mailInviataAt=ora;
+      else {                                   // invio fallito: i dati si salvano, lo stato no
+        patch.stato = b.stato||'inviata';
+        patch.acceptedAt = b.acceptedAt||''; patch.prezzoAccettato = b.prezzoAccettato||0;
+        patch.confermaManuale = b.confermaManuale||''; patch.confermaVista = b.confermaVista||'';
+      }
+    }
+    await Store.respond(id,patch);
     await reload(); renderForn(); closeModal();
+    if(!vuoleMail)   toast('Stato salvato · nessuna email inviata all\'ospite', false);
+    else if(inviata) toast(nome+' inviata a '+(merged.email||'—'));
+    else             toast(nome+' NON inviata: dati salvati, riprova', false);
   });
 }
 
 /* DIREZIONE */
 $('#dPeriodo').addEventListener('change',renderDir);
-$('#dPct').addEventListener('input',e=>{ commissionPct=parseFloat(e.target.value)||0; });
 $('#dirRefresh').addEventListener('click',async()=>{ await reload(); renderDir(); });
 $('#seedBtn').addEventListener('click',async()=>{ await seedDemo(); await reload(); renderDir(); });
 $('#clearBtn').addEventListener('click',async()=>{ if(confirm('Cancellare tutti i dati? (solo modalità demo)')){ await Store.clear(); await reload(); renderDir(); } });
@@ -646,14 +741,12 @@ function renderDir(){
   const billable=set.filter(b=>b.stato==='confermata'||b.stato==='completata');
   const confirmed=set.filter(b=>b.stato==='confermata'||b.stato==='completata');
   const fatturato=billable.reduce((s,b)=>s+(Number(b.prezzo)||0),0);
-  const ricavo=billable.reduce((s,b)=>s+(Number(b.commissione)||0),0);
   const rate=set.length?Math.round(confirmed.length/set.length*100):0;
   const ticket=billable.length?fatturato/billable.length:0;
   $('#kpis').innerHTML=`
     ${kpi('Richieste',set.length,'nel periodo')}
     ${kpi('Confermati',confirmed.length,'tasso conferma '+rate+'%')}
     ${kpi('Fatturato',eur(fatturato),'transfer fatturabili: '+billable.length)}
-    ${kpi('Ricavo Alpstay',eur(ricavo),'margine sul servizio')}
     ${kpi('Ticket medio',eur(ticket),'per transfer')}
     ${kpi('In attesa',set.filter(b=>b.stato==='inviata').length,'da confermare')}`;
   renderChart(billable); renderDirStruttura(billable);
@@ -670,25 +763,24 @@ function renderChart(set){
 }
 function renderDirStruttura(set){
   const map={};
-  set.forEach(b=>{ const k=b.struttura||'(non indicata)'; (map[k]=map[k]||{n:0,c:0,f:0,r:0}); map[k].n++; if(b.stato==='confermata'||b.stato==='completata')map[k].c++; map[k].f+=Number(b.prezzo)||0; map[k].r+=Number(b.commissione)||0; });
+  set.forEach(b=>{ const k=b.struttura||'(non indicata)'; (map[k]=map[k]||{n:0,c:0,f:0}); map[k].n++; if(b.stato==='confermata'||b.stato==='completata')map[k].c++; map[k].f+=Number(b.prezzo)||0; });
   const rows=Object.entries(map).sort((a,b)=>b[1].f-a[1].f);
-  $('#dirRows').innerHTML = rows.length? rows.map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v.n}</td><td>${v.c}</td><td>${eur(v.f)}</td><td>${eur(v.r)}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">Nessun dato nel periodo.</td></tr>';
+  $('#dirRows').innerHTML = rows.length? rows.map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v.n}</td><td>${v.c}</td><td>${eur(v.f)}</td></tr>`).join('') : '<tr><td colspan="4" class="empty">Nessun dato nel periodo.</td></tr>';
 }
 
 async function seedDemo(){
   const base=new Date(); const off=n=>new Date(base.getTime()+n*864e5).toISOString().slice(0,10);
   const samples=[
-    {tipo:'Arrivo (verso la struttura)',struttura:'Hotel Selva',nome:'Anna',cognome:'Bianchi',email:'anna@example.com',telefono:'+39 333 111',data:off(0),ora:'14:30',riferimento:'arrivo',partenza:'Aeroporto di Verona',arrivo:'Hotel Selva',volo:'FR1234',persone:'2',bagaglio:'2',sacche:'2',note:'',stato:'confermata',prezzo:180,commissione:27},
-    {tipo:'Partenza (dalla struttura)',struttura:'Residence Ortisei',nome:'Marco',cognome:'Rossi',email:'',telefono:'+39 333 222',data:off(1),ora:'09:00',riferimento:'partenza',partenza:'Residence Ortisei',arrivo:'Aeroporto di Innsbruck',volo:'',persone:'4',bagaglio:'4',sacche:'4',note:'Seggiolino bimbo',stato:'inviata',prezzo:0,commissione:0},
-    {tipo:'Arrivo (verso la struttura)',struttura:'Hotel Selva',nome:'Laura',cognome:'Verdi',email:'l@example.com',telefono:'',data:off(3),ora:'18:15',riferimento:'arrivo',partenza:'Stazione Bolzano',arrivo:'Hotel Selva',volo:'',persone:'1',bagaglio:'1',sacche:'0',note:'',stato:'confermata',prezzo:90,commissione:13.5},
-    {tipo:'Partenza (dalla struttura)',struttura:'Chalet Badia',nome:'Hans',cognome:'Müller',email:'h@example.com',telefono:'+49 170 333',data:off(-12),ora:'11:00',riferimento:'partenza',partenza:'Chalet Badia',arrivo:'Aeroporto di Monaco',volo:'LH456',persone:'3',bagaglio:'3',sacche:'3',note:'',stato:'completata',prezzo:320,commissione:48},
-    {tipo:'Arrivo (verso la struttura)',struttura:'Residence Ortisei',nome:'Sofia',cognome:'Costa',email:'',telefono:'',data:off(-25),ora:'16:00',riferimento:'arrivo',partenza:'Aeroporto di Verona',arrivo:'Residence Ortisei',volo:'AZ789',persone:'2',bagaglio:'2',sacche:'0',note:'',stato:'completata',prezzo:175,commissione:26.25}
+    {tipo:'Arrivo (verso la struttura)',struttura:'Hotel Selva',nome:'Anna',cognome:'Bianchi',email:'anna@example.com',telefono:'+39 333 111',data:off(0),ora:'14:30',riferimento:'arrivo',partenza:'Aeroporto di Verona',arrivo:'Hotel Selva',volo:'FR1234',persone:'2',bagaglio:'2',sacche:'2',note:'',stato:'confermata',prezzo:180},
+    {tipo:'Partenza (dalla struttura)',struttura:'Residence Ortisei',nome:'Marco',cognome:'Rossi',email:'',telefono:'+39 333 222',data:off(1),ora:'09:00',riferimento:'partenza',partenza:'Residence Ortisei',arrivo:'Aeroporto di Innsbruck',volo:'',persone:'4',bagaglio:'4',sacche:'4',note:'Seggiolino bimbo',stato:'inviata',prezzo:0},
+    {tipo:'Arrivo (verso la struttura)',struttura:'Hotel Selva',nome:'Laura',cognome:'Verdi',email:'l@example.com',telefono:'',data:off(3),ora:'18:15',riferimento:'arrivo',partenza:'Stazione Bolzano',arrivo:'Hotel Selva',volo:'',persone:'1',bagaglio:'1',sacche:'0',note:'',stato:'confermata',prezzo:90},
+    {tipo:'Partenza (dalla struttura)',struttura:'Chalet Badia',nome:'Hans',cognome:'Müller',email:'h@example.com',telefono:'+49 170 333',data:off(-12),ora:'11:00',riferimento:'partenza',partenza:'Chalet Badia',arrivo:'Aeroporto di Monaco',volo:'LH456',persone:'3',bagaglio:'3',sacche:'3',note:'',stato:'completata',prezzo:320},
+    {tipo:'Arrivo (verso la struttura)',struttura:'Residence Ortisei',nome:'Sofia',cognome:'Costa',email:'',telefono:'',data:off(-25),ora:'16:00',riferimento:'arrivo',partenza:'Aeroporto di Verona',arrivo:'Residence Ortisei',volo:'AZ789',persone:'2',bagaglio:'2',sacche:'0',note:'',stato:'completata',prezzo:175}
   ];
   for(const s of samples){ await Store.create(Object.assign({id:genId(),createdAt:new Date().toISOString(),noteInterne:'',orarioConfermato:'',veicolo:'',noteFornitore:'',rispostaAt:'',pagamentoAnticipato:'',linkPagamento:'',acceptedAt:'',condizioniAttive:'',noteOspite:''},s)); }
 }
 
 (async function init(){
-  $('#dPct').value=commissionPct;
   $('#modeFlag').textContent = FB_ON ? 'Sistema attivo · Realtime Database + email Google' : 'Modalità demo · dati locali a questa pagina';
   if(!FB_ON){ await reload(); if(bookings.length===0){ await seedDemo(); await reload(); } }
 })();
