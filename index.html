@@ -51,6 +51,13 @@
   select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1l5 5 5-5' stroke='%23B6924E' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");background-repeat:no-repeat;background-position:right 16px center;padding-right:38px;cursor:pointer}
   /* le caselle di spunta devono restare visibili: la regola generale sopra applica
      appearance:none anche a loro e il segno di spunta non comparirebbe mai */
+  /* nelle finestre i pulsanti non cambiano dimensione: niente scatti */
+  .modal button.submit:hover{letter-spacing:.2em}
+  .modal button.submit,.modal .btn-line{min-width:150px;text-align:center;line-height:1.1}
+  #delModal .act{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
+  #delModal .act button{flex:1 1 auto;padding:15px 18px;font-size:12px;letter-spacing:.14em;min-width:150px}
+  #delModal .act button:hover{letter-spacing:.14em}
+  #delErr{display:block;min-height:34px;line-height:1.35}
   #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:30px;z-index:9999;display:none;max-width:90vw;
     padding:16px 28px;border-radius:3px;font-family:'Lato',sans-serif;font-weight:700;font-size:15px;letter-spacing:.06em;
     text-transform:uppercase;color:#fff;box-shadow:0 8px 28px rgba(0,0,0,.22);text-align:center}
@@ -97,7 +104,7 @@
   .small{font-size:12px;color:var(--muted)}
   .empty{padding:48px 20px;text-align:center;color:var(--muted)}
 
-  .badge{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:4px 10px;border-radius:20px;border:1px solid}
+  .badge{display:inline-block;white-space:nowrap;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:4px 10px;border-radius:20px;border:1px solid}
   .b-inviata{color:var(--gold);border-color:var(--gold);background:var(--gold-wash)}
   .b-offerta{color:#6b4ea0;border-color:#d8cce8;background:#f3eefb}
   .b-confermata{color:var(--ok);border-color:#BFE0CD;background:#EFF7F2}
@@ -294,8 +301,8 @@
     <div id="delInfo" style="border:1px solid var(--field-border);border-left:4px solid var(--err);border-radius:3px;background:#FBF1F0;padding:14px 16px;margin-bottom:20px;font-size:14px;color:var(--ink)"></div>
     <div class="field"><label>Password di accesso</label><input type="password" id="delPass" placeholder="conferma con la tua password" autocomplete="current-password"></div>
     <p class="small" id="delErr" style="color:var(--err);min-height:18px;margin-top:6px"></p>
-    <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
-      <button class="submit" id="delYes" style="padding:13px 26px;background:var(--err);border-color:var(--err)">Elimina definitivamente</button>
+    <div class="act">
+      <button class="submit" id="delYes" style="background:var(--err);border-color:var(--err)">Elimina</button>
       <button class="btn-line" id="delNo">Annulla</button>
     </div>
   </div>
@@ -327,7 +334,7 @@ const eur = n => (Number(n)||0).toLocaleString('it-IT',{style:'currency',currenc
 const esc = s => (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmtDate = iso => { if(!iso) return ''; const [y,m,d]=String(iso).split('-'); return `${d}/${m}/${y}`; };
 const todayISO = () => new Date().toISOString().slice(0,10);
-const STATI = {inviata:'Richiesta ricevuta', offerta:'Offerta inviata', confermata:'Confermata dal cliente',
+const STATI = {inviata:'Ricevuta', offerta:'Offerta inviata', confermata:'Confermata',
   rifiutocliente:'Prezzo rifiutato', rifiutata:'Non disponibile', completata:'Completata', annullata:'Annullata'};
 /* stati che conservano i dati del servizio (orario, prezzo, mezzo) */
 const STATI_CON_SERVIZIO = ['offerta','confermata','completata'];
@@ -513,7 +520,7 @@ async function renderDesk(){
     <tr data-id="${b.id}" class="${b.data===t?'today-row':''}">
       <td><strong>${fmtDate(b.data)}</strong><div class="small">${esc(b.ora)} · ${b.riferimento==='arrivo'?'arrivo':'partenza'}</div></td>
       <td>${esc((b.tipo||'').split(' (')[0])}</td>
-      <td><span class="pax-name">${esc(b.nome)} ${esc(b.cognome)}</span><div class="small">${b.id}</div></td>
+      <td><span class="pax-name">${esc(b.nome)} ${esc(b.cognome)}</span><div class="small" style="white-space:nowrap">${b.id}</div></td>
       <td class="small">${esc(b.partenza)} → ${esc(b.arrivo)}</td>
       <td>${esc(b.persone)}</td>
       <td>${esc(b.struttura)||'<span class="small">—</span>'}</td>
@@ -527,7 +534,7 @@ function closeModal(){ overlay.classList.remove('show'); }
 overlay.addEventListener('click',e=>{ if(e.target===overlay) closeModal(); });
 function openModal(id){
   const b=bookings.find(x=>x.id===id); if(!b) return;
-  const oraLabel=b.riferimento==='arrivo'?'Arrivo a destinazione':'Partenza dal luogo di partenza';
+  const oraLabel=b.riferimento==='arrivo'?'Orario di arrivo':'Orario di partenza';
   modal.innerHTML=`
     <div class="modal-head"><div><h2>${esc(b.nome)} ${esc(b.cognome)}</h2></div><button class="x" id="mClose">&times;</button></div>
     <div class="mcode">${b.id} · richiesta del ${fmtDate((b.createdAt||'').slice(0,10))}</div>
@@ -554,8 +561,10 @@ function openModal(id){
     </div>
     <div class="modal-actions">
       <button class="submit" id="mSave" style="padding:13px 30px">Salva</button>
-      <button class="ghost-btn" id="mEmail" style="margin-top:0">Apri email al fornitore</button>
-      <button class="ghost-btn" id="mDelete" style="margin-top:0;margin-left:auto;border-color:#C45D5D;color:#C45D5D">Elimina prenotazione</button>
+      <button class="ghost-btn" id="mEmail" style="margin-top:0">Email al fornitore</button>
+    </div>
+    <div style="border-top:1px solid var(--field-border);margin-top:22px;padding-top:16px;text-align:right">
+      <button class="ghost-btn" id="mDelete" style="margin-top:0;border-color:var(--err);color:var(--err)">Elimina prenotazione</button>
     </div>`;
   overlay.classList.add('show');
   $('#mClose').addEventListener('click',closeModal);
@@ -597,7 +606,7 @@ async function confermaEliminazione(){
     } else if(pass!==CONFIG.DEMO_ADMIN_PASS){ throw new Error('pw'); }
   }catch(e){
     $('#delErr').textContent='Password errata: eliminazione annullata.';
-    $('#delYes').disabled=false; $('#delYes').textContent='Elimina definitivamente'; return;
+    $('#delYes').disabled=false; $('#delYes').textContent='Elimina'; return;
   }
   const id=delId;
   try{
@@ -606,7 +615,7 @@ async function confermaEliminazione(){
   }catch(e){
     $('#delErr').textContent='Eliminazione non riuscita. Riprova.';
   }
-  $('#delYes').disabled=false; $('#delYes').textContent='Elimina definitivamente';
+  $('#delYes').disabled=false; $('#delYes').textContent='Elimina';
 }
 $('#delYes').addEventListener('click',confermaEliminazione);
 $('#delNo').addEventListener('click',closeDelete);
@@ -614,7 +623,7 @@ $('#delPass').addEventListener('keydown',e=>{ if(e.key==='Enter') confermaElimin
 $('#delOverlay').addEventListener('click',e=>{ if(e.target===$('#delOverlay')) closeDelete(); });
 document.addEventListener('keydown',e=>{ if(e.key==='Escape' && $('#delOverlay').classList.contains('show')) closeDelete(); });
 function mailtoFor(b){
-  const oraLabel=b.riferimento==='arrivo'?'Orario di ARRIVO a destinazione':'Orario di PARTENZA dal luogo di partenza';
+  const oraLabel=b.riferimento==='arrivo'?'Orario di arrivo':'Orario di partenza';
   const L=['RICHIESTA DI TRANSFER — ALPSTAY','','Codice: '+b.id,'Tipo di transfer: '+b.tipo];
   if(b.struttura) L.push('Struttura Alpstay: '+b.struttura);
   L.push('','— PASSEGGERO —','Nome: '+b.nome,'Cognome: '+b.cognome);
@@ -643,7 +652,7 @@ async function renderForn(){
   tb.innerHTML=rows.map(b=>`
     <tr data-id="${b.id}" class="${b.data===t?'today-row':''}">
       <td><strong>${fmtDate(b.data)}</strong><div class="small">${esc(b.ora)} · ${b.riferimento==='arrivo'?'arrivo':'partenza'}</div></td>
-      <td><span class="pax-name">${esc(b.nome)} ${esc(b.cognome)}</span><div class="small">${b.id}</div></td>
+      <td><span class="pax-name">${esc(b.nome)} ${esc(b.cognome)}</span><div class="small" style="white-space:nowrap">${b.id}</div></td>
       <td class="small">${esc(b.partenza)} → ${esc(b.arrivo)}</td>
       <td>${esc(b.persone)} pax<div class="small">${esc(b.bagaglio)} val. · ${esc(b.sacche)} sci</div></td>
       <td>${esc(b.struttura)||'<span class="small">—</span>'}</td>
@@ -653,7 +662,7 @@ async function renderForn(){
 }
 function openFornModal(id){
   const b=bookings.find(x=>x.id===id); if(!b) return;
-  const oraLabel=b.riferimento==='arrivo'?'Orario di ARRIVO a destinazione':'Orario di PARTENZA dal luogo di partenza';
+  const oraLabel=b.riferimento==='arrivo'?'Orario di arrivo':'Orario di partenza';
   modal.innerHTML=`
     <div class="modal-head"><div><h2>Richiesta transfer</h2></div><button class="x" id="mClose">&times;</button></div>
     <div class="mcode">${b.id} · struttura: ${esc(b.struttura)||'—'}</div>
@@ -707,7 +716,9 @@ function openFornModal(id){
       <label id="wMail" style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--ink);cursor:pointer">
         <input type="checkbox" id="fMail" style="width:auto" checked> <span id="mailLabel">Invia l&rsquo;email all&rsquo;ospite</span>
       </label>
-      <button class="ghost-btn" id="fDelete" style="margin-top:0;margin-left:auto;border-color:var(--err);color:var(--err)">Elimina richiesta</button>
+    </div>
+    <div style="border-top:1px solid var(--field-border);margin-top:22px;padding-top:16px;text-align:right">
+      <button class="ghost-btn" id="fDelete" style="margin-top:0;border-color:var(--err);color:var(--err)">Elimina richiesta</button>
     </div>`;
   overlay.classList.add('show');
   $('#mClose').addEventListener('click',closeModal);
