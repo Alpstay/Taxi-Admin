@@ -58,6 +58,10 @@
   #delModal .act button{flex:1 1 auto;padding:15px 18px;font-size:12px;letter-spacing:.14em;min-width:150px}
   #delModal .act button:hover{letter-spacing:.14em}
   #delErr{display:block;min-height:34px;line-height:1.35}
+  .trash{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;
+    border:1px solid transparent;border-radius:3px;background:none;color:var(--muted);cursor:pointer;transition:.2s;flex:none}
+  .trash:hover{color:var(--err);border-color:#E7C7C4;background:#FBF1F0}
+  .trash svg{width:15px;height:15px;display:block}
   #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:30px;z-index:9999;display:none;max-width:90vw;
     padding:16px 28px;border-radius:3px;font-family:'Lato',sans-serif;font-weight:700;font-size:15px;letter-spacing:.06em;
     text-transform:uppercase;color:#fff;box-shadow:0 8px 28px rgba(0,0,0,.22);text-align:center}
@@ -169,6 +173,23 @@
     .section-title{font-size:23px}
     .logo{height:78px}
     nav{flex-wrap:wrap}
+    /* la tabella diventa un elenco di schede: niente scorrimento laterale */
+    .table-scroll{overflow-x:visible;border:none;border-radius:0}
+    .table-scroll table{min-width:0!important}
+    .table-scroll thead{display:none}
+    .table-scroll table,.table-scroll tbody,.table-scroll tr,.table-scroll td{display:block;width:100%}
+    .table-scroll tr{border:1px solid var(--field-border);border-left:4px solid var(--gold-line);
+      border-radius:3px;margin-bottom:12px;padding:12px 14px;background:#fff}
+    .table-scroll tr.today-row{border-left-color:var(--gold)}
+    .table-scroll td{border:none!important;padding:5px 0;display:flex;align-items:baseline;justify-content:space-between;gap:14px;text-align:right}
+    .table-scroll td::before{content:attr(data-l);flex:0 0 auto;text-align:left;
+      font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:700}
+    .table-scroll td:empty{display:none}
+    .table-scroll td .small{text-align:right}
+    .toolbar{gap:12px}
+    .modal{padding:24px 18px}
+    .modal-actions{flex-direction:column;align-items:stretch}
+    .modal-actions button{width:100%}
   }
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -359,6 +380,19 @@ const Store = {
 let bookings=[];
 async function reload(){ bookings=await Store.list(); }
 
+/* ---- Cestino: elimina direttamente dall'elenco (chiede la password) ---- */
+function cestino(id){
+  return `<button class="trash" data-del="${id}" title="Elimina questa prenotazione" aria-label="Elimina">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg></button>`;
+}
+function attivaCestini(tb){
+  tb.querySelectorAll('button[data-del]').forEach(btn=>btn.addEventListener('click',e=>{
+    e.stopPropagation();                   // non apre il dettaglio della riga
+    deleteBooking(btn.dataset.del);
+  }));
+}
+
 /* ---- Messaggio a schermo (esito dell'invio) ---- */
 function toast(testo, ok){
   let el=document.getElementById('toast');
@@ -526,16 +560,17 @@ async function renderDesk(){
   if(!rows.length){ tb.innerHTML='<tr><td colspan="8" class="empty">Nessun transfer per i criteri selezionati.</td></tr>'; return; }
   tb.innerHTML=rows.map(b=>`
     <tr data-id="${b.id}" class="${b.data===t?'today-row':''}">
-      <td><strong>${fmtDate(b.data)}</strong><div class="small">${esc(b.ora)} · ${b.riferimento==='arrivo'?'arrivo':'partenza'}</div></td>
-      <td>${esc((b.tipo||'').split(' (')[0])}</td>
-      <td><span class="pax-name">${esc(b.nome)} ${esc(b.cognome)}</span><div class="small" style="white-space:nowrap">${b.id}</div></td>
-      <td class="small">${esc(b.partenza)} → ${esc(b.arrivo)}</td>
-      <td>${esc(b.persone)}</td>
-      <td>${esc(b.struttura)||'<span class="small">—</span>'}</td>
-      <td style="text-align:right;white-space:nowrap">${Number(b.prezzo)>0?(Number(b.prezzoAccettato)>0?`<strong>${eur(b.prezzo)}</strong>`:eur(b.prezzo)):'<span class="small">—</span>'}</td>
-      <td><span class="badge b-${b.stato}">${STATI[b.stato]||b.stato}</span></td>
+      <td data-l="Data"><strong>${fmtDate(b.data)}</strong><div class="small">${esc(b.ora)} · ${b.riferimento==='arrivo'?'arrivo':'partenza'}</div></td>
+      <td data-l="Tipo">${esc((b.tipo||'').split(' (')[0])}</td>
+      <td data-l="Passeggero"><span class="pax-name">${esc(b.nome)} ${esc(b.cognome)}</span><div class="small" style="white-space:nowrap">${b.id}</div></td>
+      <td data-l="Tragitto" class="small">${esc(b.partenza)} → ${esc(b.arrivo)}</td>
+      <td data-l="Pax">${esc(b.persone)}</td>
+      <td data-l="Struttura">${esc(b.struttura)||'<span class="small">—</span>'}</td>
+      <td data-l="Importo" style="text-align:right;white-space:nowrap">${Number(b.prezzo)>0?(Number(b.prezzoAccettato)>0?`<strong>${eur(b.prezzo)}</strong>`:eur(b.prezzo)):'<span class="small">—</span>'}</td>
+      <td data-l="Stato"><span style="display:inline-flex;align-items:center;gap:8px"><span class="badge b-${b.stato}">${STATI[b.stato]||b.stato}</span>${b.stato==='completata'?cestino(b.id):''}</span></td>
     </tr>`).join('');
   tb.querySelectorAll('tr[data-id]').forEach(tr=>tr.addEventListener('click',()=>openModal(tr.dataset.id)));
+  attivaCestini(tb);
 }
 
 const overlay=$('#overlay'), modal=$('#modal');
@@ -660,15 +695,16 @@ async function renderForn(){
   if(!rows.length){ tb.innerHTML='<tr><td colspan="7" class="empty">Nessuna richiesta da mostrare.</td></tr>'; return; }
   tb.innerHTML=rows.map(b=>`
     <tr data-id="${b.id}" class="${b.data===t?'today-row':''}">
-      <td><strong>${fmtDate(b.data)}</strong><div class="small">${esc(b.ora)} · ${b.riferimento==='arrivo'?'arrivo':'partenza'}</div></td>
-      <td><span class="pax-name">${esc(b.nome)} ${esc(b.cognome)}</span><div class="small" style="white-space:nowrap">${b.id}</div></td>
-      <td class="small">${esc(b.partenza)} → ${esc(b.arrivo)}</td>
-      <td>${esc(b.persone)} pax<div class="small">${esc(b.bagaglio)} val. · ${esc(b.sacche)} sci</div></td>
-      <td>${esc(b.struttura)||'<span class="small">—</span>'}</td>
-      <td style="text-align:right;white-space:nowrap">${Number(b.prezzo)>0?(Number(b.prezzoAccettato)>0?`<strong>${eur(b.prezzo)}</strong>`:eur(b.prezzo)):'<span class="small">—</span>'}</td>
-      <td><span class="badge b-${b.stato}">${STATI[b.stato]||b.stato}</span></td>
+      <td data-l="Data"><strong>${fmtDate(b.data)}</strong><div class="small">${esc(b.ora)} · ${b.riferimento==='arrivo'?'arrivo':'partenza'}</div></td>
+      <td data-l="Passeggero"><span class="pax-name">${esc(b.nome)} ${esc(b.cognome)}</span><div class="small" style="white-space:nowrap">${b.id}</div></td>
+      <td data-l="Tragitto" class="small">${esc(b.partenza)} → ${esc(b.arrivo)}</td>
+      <td data-l="Pax / Bagagli">${esc(b.persone)} pax<div class="small">${esc(b.bagaglio)} val. · ${esc(b.sacche)} sci</div></td>
+      <td data-l="Struttura">${esc(b.struttura)||'<span class="small">—</span>'}</td>
+      <td data-l="Importo" style="text-align:right;white-space:nowrap">${Number(b.prezzo)>0?(Number(b.prezzoAccettato)>0?`<strong>${eur(b.prezzo)}</strong>`:eur(b.prezzo)):'<span class="small">—</span>'}</td>
+      <td data-l="Stato"><span style="display:inline-flex;align-items:center;gap:8px"><span class="badge b-${b.stato}">${STATI[b.stato]||b.stato}</span>${b.stato==='completata'?cestino(b.id):''}</span></td>
     </tr>`).join('');
   tb.querySelectorAll('tr[data-id]').forEach(tr=>tr.addEventListener('click',()=>openFornModal(tr.dataset.id)));
+  attivaCestini(tb);
 }
 function openFornModal(id){
   const b=bookings.find(x=>x.id===id); if(!b) return;
