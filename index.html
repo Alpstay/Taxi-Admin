@@ -219,7 +219,7 @@
 
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Data / Ora</th><th>Tipo</th><th>Passeggero</th><th>Tragitto</th><th>Pax</th><th>Struttura</th><th>Stato</th></tr></thead>
+          <thead><tr><th>Data / Ora</th><th>Tipo</th><th>Passeggero</th><th>Tragitto</th><th>Pax</th><th>Struttura</th><th style="text-align:right">Importo</th><th>Stato</th></tr></thead>
           <tbody id="deskRows"></tbody>
         </table>
       </div>
@@ -271,7 +271,7 @@
       </div>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Data / Ora</th><th>Passeggero</th><th>Tragitto</th><th>Pax / Bagagli</th><th>Struttura</th><th>Stato</th></tr></thead>
+          <thead><tr><th>Data / Ora</th><th>Passeggero</th><th>Tragitto</th><th>Pax / Bagagli</th><th>Struttura</th><th style="text-align:right">Importo</th><th>Stato</th></tr></thead>
           <tbody id="fornRows"></tbody>
         </table>
       </div>
@@ -369,19 +369,27 @@ function toast(testo, ok){
 
 /* ---- Conferme del cliente: avviso nel pannello ---- */
 function nuoveConferme(){
-  return bookings.filter(b=> b.stato==='confermata' && b.acceptedAt && !b.confermaVista);
+  return bookings.filter(b=>
+    (b.stato==='confermata'     && b.acceptedAt        && !b.confermaVista) ||
+    (b.stato==='rifiutocliente' && b.rispostaClienteAt && !b.confermaVista));
 }
 function renderAlert(){
   const bar=$('#alertBar'); if(!bar) return;
   const nuove=nuoveConferme();
   if(!nuove.length){ bar.style.display='none'; return; }
   bar.style.display='block';
+  const rifiuti = nuove.filter(b=>b.stato==='rifiutocliente').length;
   $('#alertTitle').textContent = nuove.length===1
-    ? '1 nuova conferma dal cliente'
-    : nuove.length+' nuove conferme dai clienti';
+    ? (rifiuti ? '1 risposta dal cliente: prezzo rifiutato' : '1 nuova conferma dal cliente')
+    : nuove.length+' nuove risposte dai clienti'+(rifiuti?' ('+rifiuti+' con prezzo rifiutato)':'');
+  $('#alertBar').style.borderColor = rifiuti ? 'var(--err)' : '#2F7D5B';
+  $('#alertBar').style.background  = rifiuti ? '#FBF1F0' : '#EFF7F2';
+  $('#alertTitle').style.color     = rifiuti ? 'var(--err)' : '#2F7D5B';
+  $('#alertSeen').style.borderColor= rifiuti ? 'var(--err)' : '#2F7D5B';
+  $('#alertSeen').style.color      = rifiuti ? 'var(--err)' : '#2F7D5B';
   $('#alertList').innerHTML = nuove
-    .sort((a,b)=>String(b.acceptedAt).localeCompare(String(a.acceptedAt)))
-    .map(b=>`<div style="padding:3px 0">${esc(b.nome)} ${esc(b.cognome)} · ${b.id} · ${fmtDate(b.data)} ore ${esc(b.orarioConfermato)||esc(b.ora)} · prezzo accettato <strong>${eur(b.prezzoAccettato||b.prezzo)}</strong></div>`)
+    .sort((a,b)=>String(b.acceptedAt||b.rispostaClienteAt).localeCompare(String(a.acceptedAt||a.rispostaClienteAt)))
+    .map(b=>`<div style="padding:3px 0">${esc(b.nome)} ${esc(b.cognome)} · ${b.id} · ${fmtDate(b.data)} ore ${esc(b.orarioConfermato)||esc(b.ora)} · ${b.stato==='rifiutocliente'?'<strong>prezzo rifiutato</strong> ('+eur(b.prezzo)+')':'prezzo accettato <strong>'+eur(b.prezzoAccettato||b.prezzo)+'</strong>'}</div>`)
     .join('');
 }
 async function segnaConfermeViste(){
@@ -515,7 +523,7 @@ async function renderDesk(){
   const per=$('#fPeriodo').value, st=$('#fStato').value, str=$('#fStruttura').value.toLowerCase().trim(), q=$('#fSearch').value.toLowerCase().trim();
   let rows=bookings.filter(b=>inPeriod(b,per)).filter(b=>!st||b.stato===st).filter(b=>!str||(b.struttura||'').toLowerCase().includes(str)).filter(b=>!q||(`${b.nome} ${b.cognome} ${b.id}`).toLowerCase().includes(q)).sort((a,b)=>(a.data+a.ora).localeCompare(b.data+b.ora));
   const tb=$('#deskRows'); const t=todayISO();
-  if(!rows.length){ tb.innerHTML='<tr><td colspan="7" class="empty">Nessun transfer per i criteri selezionati.</td></tr>'; return; }
+  if(!rows.length){ tb.innerHTML='<tr><td colspan="8" class="empty">Nessun transfer per i criteri selezionati.</td></tr>'; return; }
   tb.innerHTML=rows.map(b=>`
     <tr data-id="${b.id}" class="${b.data===t?'today-row':''}">
       <td><strong>${fmtDate(b.data)}</strong><div class="small">${esc(b.ora)} · ${b.riferimento==='arrivo'?'arrivo':'partenza'}</div></td>
@@ -524,6 +532,7 @@ async function renderDesk(){
       <td class="small">${esc(b.partenza)} → ${esc(b.arrivo)}</td>
       <td>${esc(b.persone)}</td>
       <td>${esc(b.struttura)||'<span class="small">—</span>'}</td>
+      <td style="text-align:right;white-space:nowrap">${Number(b.prezzo)>0?(Number(b.prezzoAccettato)>0?`<strong>${eur(b.prezzo)}</strong>`:eur(b.prezzo)):'<span class="small">—</span>'}</td>
       <td><span class="badge b-${b.stato}">${STATI[b.stato]||b.stato}</span></td>
     </tr>`).join('');
   tb.querySelectorAll('tr[data-id]').forEach(tr=>tr.addEventListener('click',()=>openModal(tr.dataset.id)));
@@ -648,7 +657,7 @@ async function renderForn(){
     .filter(b=>!q||(`${b.nome} ${b.cognome} ${b.struttura} ${b.id}`).toLowerCase().includes(q))
     .sort((a,b)=>(a.data+a.ora).localeCompare(b.data+b.ora));
   const tb=$('#fornRows');
-  if(!rows.length){ tb.innerHTML='<tr><td colspan="6" class="empty">Nessuna richiesta da mostrare.</td></tr>'; return; }
+  if(!rows.length){ tb.innerHTML='<tr><td colspan="7" class="empty">Nessuna richiesta da mostrare.</td></tr>'; return; }
   tb.innerHTML=rows.map(b=>`
     <tr data-id="${b.id}" class="${b.data===t?'today-row':''}">
       <td><strong>${fmtDate(b.data)}</strong><div class="small">${esc(b.ora)} · ${b.riferimento==='arrivo'?'arrivo':'partenza'}</div></td>
@@ -656,6 +665,7 @@ async function renderForn(){
       <td class="small">${esc(b.partenza)} → ${esc(b.arrivo)}</td>
       <td>${esc(b.persone)} pax<div class="small">${esc(b.bagaglio)} val. · ${esc(b.sacche)} sci</div></td>
       <td>${esc(b.struttura)||'<span class="small">—</span>'}</td>
+      <td style="text-align:right;white-space:nowrap">${Number(b.prezzo)>0?(Number(b.prezzoAccettato)>0?`<strong>${eur(b.prezzo)}</strong>`:eur(b.prezzo)):'<span class="small">—</span>'}</td>
       <td><span class="badge b-${b.stato}">${STATI[b.stato]||b.stato}</span></td>
     </tr>`).join('');
   tb.querySelectorAll('tr[data-id]').forEach(tr=>tr.addEventListener('click',()=>openFornModal(tr.dataset.id)));
