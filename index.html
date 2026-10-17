@@ -238,7 +238,7 @@
 
       <div class="toolbar">
         <div class="field"><label>Periodo</label>
-          <select id="fPeriodo"><option value="next7">Prossimi 7 giorni</option><option value="today">Solo oggi</option><option value="future">Da oggi in poi</option><option value="all">Tutti</option></select></div>
+          <select id="fPeriodo"><option value="future" selected>Da oggi in poi</option><option value="next7">Prossimi 7 giorni</option><option value="today">Solo oggi</option><option value="all">Tutti</option></select></div>
         <div class="field"><label>Stato</label>
           <select id="fStato"><option value="">Tutti</option></select></div>
         <div class="field"><label>Struttura</label><input type="text" id="fStruttura" placeholder="filtra…"></div>
@@ -570,12 +570,12 @@ async function renderDesk(){
     <tr data-id="${b.id}" class="${b.data===t?'today-row':''}">
       <td data-l="Data"><strong>${fmtDate(b.data)}</strong><div class="small">${esc(b.ora)} · ${b.riferimento==='arrivo'?'arrivo':'partenza'}</div></td>
       <td data-l="Tipo">${esc((b.tipo||'').split(' (')[0])}</td>
-      <td data-l="Passeggero"><span class="pax-name">${esc(b.nome)} ${esc(b.cognome)}</span><div class="small" style="white-space:nowrap">${b.id}</div></td>
+      <td data-l="Passeggero"><span class="pax-name">${esc(b.nome)} ${esc(b.cognome)}</span><div class="small" style="white-space:nowrap">${b.id}${b.tratta?` · <span style="color:var(--gold);font-weight:700">${b.tratta==="ritorno"?"RITORNO":"ANDATA"}</span>`:''}</div></td>
       <td data-l="Tragitto" class="small">${esc(b.partenza)} → ${esc(b.arrivo)}</td>
       <td data-l="Pax">${esc(b.persone)}</td>
       <td data-l="Struttura">${esc(b.struttura)||'<span class="small">—</span>'}</td>
       <td data-l="Importo" style="text-align:right;white-space:nowrap">${Number(b.prezzo)>0?(Number(b.prezzoAccettato)>0?`<strong>${eur(b.prezzo)}</strong>`:eur(b.prezzo)):'<span class="small">—</span>'}</td>
-      <td data-l="Stato"><span style="display:inline-flex;align-items:center;gap:8px"><span class="badge b-${b.stato}">${STATI[b.stato]||b.stato}</span>${b.stato==='completata'?cestino(b.id):''}</span></td>
+      <td data-l="Stato"><span style="display:inline-flex;align-items:center;gap:8px"><span class="badge b-${b.stato}">${STATI[b.stato]||b.stato}</span>${cestino(b.id)}</span></td>
     </tr>`).join('');
   tb.querySelectorAll('tr[data-id]').forEach(tr=>tr.addEventListener('click',()=>openModal(tr.dataset.id)));
   attivaCestini(tb);
@@ -589,7 +589,7 @@ function openModal(id){
   const oraLabel=b.riferimento==='arrivo'?'Orario di arrivo':'Orario di partenza';
   modal.innerHTML=`
     <div class="modal-head"><div><h2>${esc(b.nome)} ${esc(b.cognome)}</h2></div><button class="x" id="mClose">&times;</button></div>
-    <div class="mcode">${b.id} · richiesta del ${fmtDate((b.createdAt||'').slice(0,10))}</div>
+    <div class="mcode">${b.id} · richiesta del ${fmtDate((b.createdAt||'').slice(0,10))}${b.collegata?` · ${b.tratta==="ritorno"?"ritorno":"andata"} — collegata a ${b.collegata}`:''}</div>
     <div class="detail-grid">
       <div><div class="dl">Tipo</div><div class="dv">${esc(b.tipo)||'—'}</div></div>
       <div><div class="dl">Struttura</div><div class="dv">${esc(b.struttura)||'—'}</div></div>
@@ -704,12 +704,12 @@ async function renderForn(){
   tb.innerHTML=rows.map(b=>`
     <tr data-id="${b.id}" class="${b.data===t?'today-row':''}">
       <td data-l="Data"><strong>${fmtDate(b.data)}</strong><div class="small">${esc(b.ora)} · ${b.riferimento==='arrivo'?'arrivo':'partenza'}</div></td>
-      <td data-l="Passeggero"><span class="pax-name">${esc(b.nome)} ${esc(b.cognome)}</span><div class="small" style="white-space:nowrap">${b.id}</div></td>
+      <td data-l="Passeggero"><span class="pax-name">${esc(b.nome)} ${esc(b.cognome)}</span><div class="small" style="white-space:nowrap">${b.id}${b.tratta?` · <span style="color:var(--gold);font-weight:700">${b.tratta==="ritorno"?"RITORNO":"ANDATA"}</span>`:''}</div></td>
       <td data-l="Tragitto" class="small">${esc(b.partenza)} → ${esc(b.arrivo)}</td>
       <td data-l="Pax / Bagagli">${esc(b.persone)} pax<div class="small">${esc(b.bagaglio)} val. · ${esc(b.sacche)} sci</div></td>
       <td data-l="Struttura">${esc(b.struttura)||'<span class="small">—</span>'}</td>
       <td data-l="Importo" style="text-align:right;white-space:nowrap">${Number(b.prezzo)>0?(Number(b.prezzoAccettato)>0?`<strong>${eur(b.prezzo)}</strong>`:eur(b.prezzo)):'<span class="small">—</span>'}</td>
-      <td data-l="Stato"><span style="display:inline-flex;align-items:center;gap:8px"><span class="badge b-${b.stato}">${STATI[b.stato]||b.stato}</span>${b.stato==='completata'?cestino(b.id):''}</span></td>
+      <td data-l="Stato"><span style="display:inline-flex;align-items:center;gap:8px"><span class="badge b-${b.stato}">${STATI[b.stato]||b.stato}</span>${cestino(b.id)}</span></td>
     </tr>`).join('');
   tb.querySelectorAll('tr[data-id]').forEach(tr=>tr.addEventListener('click',()=>openFornModal(tr.dataset.id)));
   attivaCestini(tb);
@@ -719,7 +719,7 @@ function openFornModal(id){
   const oraLabel=b.riferimento==='arrivo'?'Orario di arrivo':'Orario di partenza';
   modal.innerHTML=`
     <div class="modal-head"><div><h2>Richiesta transfer</h2></div><button class="x" id="mClose">&times;</button></div>
-    <div class="mcode">${b.id} · struttura: ${esc(b.struttura)||'—'}</div>
+    <div class="mcode">${b.id} · struttura: ${esc(b.struttura)||'—'}${b.collegata?` · ${b.tratta==="ritorno"?"ritorno":"andata"} — collegata a ${b.collegata}`:''}</div>
     <div class="detail-grid">
       <div><div class="dl">Passeggero</div><div class="dv">${esc(b.nome)} ${esc(b.cognome)} · ${esc(b.persone)} pax</div></div>
       <div><div class="dl">Contatti</div><div class="dv">${esc(b.email)||'—'}<br>${esc(b.telefono)||''}</div></div>
@@ -825,6 +825,14 @@ function openFornModal(id){
     }
     const nome = STATI_CON_EMAIL[esito] || '';
     const vuoleMail = !!nome && $('#fMail').checked;
+
+    /* le condizioni valide sono quelle di adesso, non quelle caricate al login */
+    if(vuoleMail && (esito==='offerta' || esito==='confermata')){
+      try{ conditions = await Store.getConditions(); }catch(e){}
+      if(!conditions && !confirm('Attenzione: non risultano condizioni generali impostate.\n\n'
+        +'L\'offerta partirebbe senza condizioni di cancellazione, attesa e penali, e il cliente non potrebbe accettarle.\n\n'
+        +'Inviare lo stesso?')){ $('#fSave').disabled=false; return; }
+    }
     const etichettaSalva=$('#fSave').textContent;
     $('#fSave').disabled=true; $('#fSave').textContent=vuoleMail?'Invio…':'Salvataggio…';
 
